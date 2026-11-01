@@ -174,7 +174,10 @@
   // ---------- State ----------
   // REAL = running inside the installed app (not the review preview): start empty, no example data.
   const REAL = !!window.HFDev;
-  const KEY = REAL ? 'hf-app-v1' : 'hf-preview-v2';
+  // v2 = fresh start with 1.0.7 (jake asked for a data reset). The AI key and Health Connect
+  // permissions live outside this and stay.
+  const KEY = REAL ? 'hf-app-v2' : 'hf-preview-v2';
+  if (REAL) { try { localStorage.removeItem('hf-app-v1'); } catch (e) {} }
   const DEFAULT_DAYS = [[], ['Chest', 'Arms'], ['Back', 'Core'], ['Legs', 'Arms'], [], ['Chest', 'Shoulders'], ['Back', 'Legs']];
   const freshState = () => {
     const S = {
@@ -198,7 +201,7 @@
       dailyMin: { Legs: 1 },
       planWeek: null, next: {}, myPrograms: [],
       mealOpen: { Breakfast: true, Lunch: true, Dinner: true, Snack: true },
-      ai: { endpoint: '', key: '', model: '', vision: true },
+      ai: { endpoint: '', key: '', model: '', vision: true, notes: '' },
       hc: { connected: true, read: { weight: true, hr: true, sleep: true, rhr: true }, write: { sessions: true }, conflict: 'merge' },
       dismissed: [],
       game: { items: [], equip: {} },
@@ -357,13 +360,16 @@
   const fmtW = lb => r1(lb) + ' lb';
   const ftIn = n => `${Math.floor(n / 12)}' ${r0(n % 12)}"`;
   const exName = id => EXB[id]?.n || id.replace(/_/g, ' ');
-  const lastWeight = id => { for (let i = S.sessions.length - 1; i >= 0; i--) { const s = S.sessions[i].sets.filter(x => x.ex === id && x.w > 0); if (s.length) return Math.max(...s.map(x => x.w)); } return null; };
+  const lastWeight = id => { for (let i = S.sessions.length - 1; i >= 0; i--) { const s = S.sessions[i].sets.filter(x => x.ex === id && x.w > 0); if (s.length) return s[s.length - 1].w; } return null; };
+  // Safe first weight from fitness level, body weight and the lift (logic.js startWeight).
+  const startW = (id, scheme) => isBW(id) ? null : L.startWeight(EXB[id], S.profile, scheme, STEP);
   const schemeOf = it => S.schemes[it.scheme] || S.schemes.build;
   // "3 x 6-12 @ 100 lb" for quick reference in every plan list.
   const targetLine = it => {
     const sc = schemeOf(it), bw = isBW(it.ex);
     const w = S.next[it.ex]?.w ?? lastWeight(it.ex);
-    return `${it.sets} × ${sc.lo}-${sc.hi}${bw ? ' · body weight' : w ? ' @ ' + fmtW(w) : ' · pick a weight'}`;
+    const sw = w ? null : startW(it.ex, it.scheme);
+    return `${it.sets} × ${sc.lo}-${sc.hi}${bw ? ' · body weight' : w ? ' @ ' + fmtW(w) : sw ? ' · start @ ' + fmtW(sw) : ' · pick a weight'}`;
   };
   const bullets = (items, opts = {}) => items.length ? `<ul class="blist">${items.map((it, k) => `<li${opts.act ? ` data-act="${opts.act}" data-id="${esc(it.ex)}" data-i="${opts.i ?? ''}" data-k2="${k}"` : ''}><span class="bn">${esc(exName(it.ex))}${S.stars.includes(it.ex) ? ' <span class="starmark">★</span>' : ''}${it.daily ? ' <span class="badge">daily min</span>' : ''}</span><span class="bt num">${targetLine(it)}</span></li>`).join('')}</ul>` : '';
 

@@ -174,7 +174,10 @@
   // ---------- State ----------
   // REAL = running inside the installed app (not the review preview): start empty, no example data.
   const REAL = !!window.HFDev;
-  const KEY = REAL ? 'hf-app-v1' : 'hf-preview-v2';
+  // v2 = fresh start with 1.0.7 (jake asked for a data reset). The AI key and Health Connect
+  // permissions live outside this and stay.
+  const KEY = REAL ? 'hf-app-v2' : 'hf-preview-v2';
+  if (REAL) { try { localStorage.removeItem('hf-app-v1'); } catch (e) {} }
   const DEFAULT_DAYS = [[], ['Chest', 'Arms'], ['Back', 'Core'], ['Legs', 'Arms'], [], ['Chest', 'Shoulders'], ['Back', 'Legs']];
   const freshState = () => {
     const S = {
@@ -198,7 +201,7 @@
       dailyMin: { Legs: 1 },
       planWeek: null, next: {}, myPrograms: [],
       mealOpen: { Breakfast: true, Lunch: true, Dinner: true, Snack: true },
-      ai: { endpoint: '', key: '', model: '', vision: true },
+      ai: { endpoint: '', key: '', model: '', vision: true, notes: '' },
       hc: { connected: true, read: { weight: true, hr: true, sleep: true, rhr: true }, write: { sessions: true }, conflict: 'merge' },
       dismissed: [],
       game: { items: [], equip: {} },
@@ -357,13 +360,16 @@
   const fmtW = lb => r1(lb) + ' lb';
   const ftIn = n => `${Math.floor(n / 12)}' ${r0(n % 12)}"`;
   const exName = id => EXB[id]?.n || id.replace(/_/g, ' ');
-  const lastWeight = id => { for (let i = S.sessions.length - 1; i >= 0; i--) { const s = S.sessions[i].sets.filter(x => x.ex === id && x.w > 0); if (s.length) return Math.max(...s.map(x => x.w)); } return null; };
+  const lastWeight = id => { for (let i = S.sessions.length - 1; i >= 0; i--) { const s = S.sessions[i].sets.filter(x => x.ex === id && x.w > 0); if (s.length) return s[s.length - 1].w; } return null; };
+  // Safe first weight from fitness level, body weight and the lift (logic.js startWeight).
+  const startW = (id, scheme) => isBW(id) ? null : L.startWeight(EXB[id], S.profile, scheme, STEP);
   const schemeOf = it => S.schemes[it.scheme] || S.schemes.build;
   // "3 x 6-12 @ 100 lb" for quick reference in every plan list.
   const targetLine = it => {
     const sc = schemeOf(it), bw = isBW(it.ex);
     const w = S.next[it.ex]?.w ?? lastWeight(it.ex);
-    return `${it.sets} \u00d7 ${sc.lo}-${sc.hi}${bw ? ' \u00b7 body weight' : w ? ' @ ' + fmtW(w) : ' \u00b7 pick a weight'}`;
+    const sw = w ? null : startW(it.ex, it.scheme);
+    return `${it.sets} \u00d7 ${sc.lo}-${sc.hi}${bw ? ' \u00b7 body weight' : w ? ' @ ' + fmtW(w) : sw ? ' \u00b7 start @ ' + fmtW(sw) : ' \u00b7 pick a weight'}`;
   };
   const bullets = (items, opts = {}) => items.length ? `<ul class="blist">${items.map((it, k) => `<li${opts.act ? ` data-act="${opts.act}" data-id="${esc(it.ex)}" data-i="${opts.i ?? ''}" data-k2="${k}"` : ''}><span class="bn">${esc(exName(it.ex))}${S.stars.includes(it.ex) ? ' <span class="starmark">\u2605</span>' : ''}${it.daily ? ' <span class="badge">daily min</span>' : ''}</span><span class="bt num">${targetLine(it)}</span></li>`).join('')}</ul>` : '';
 
@@ -711,7 +717,7 @@
         <div class="vf-actions"><button class="btn sm" data-act="simScan">${ic('scan')}Simulate scan</button><button class="btn sm" data-act="photoAI" aria-label="Photo of plate">${ic('camera')}Plate photo</button></div></div>` : ''}
       <div class="chips" data-k="meal-chips">${MEALS.map(m => `<button class="chip ${U.meal === m ? 'on' : ''}" data-act="meal" data-v="${m}">${m}</button>`).join('')}</div>
       <div class="row" data-k="food-search"><input class="f" id="foodq" placeholder="Search foods, recipes, barcodes" value="${esc(U.q)}" data-in="foodq" autocomplete="off"><button class="btn sm ghost" data-act="newFood">${ic('plus')}Custom</button></div>
-      ${res ? `<div class="card" data-k="search-results">${res.length ? groupResults(res) : `<div class="muted small">No match in your foods. Online search (Open Food Facts) runs here in the real app.</div>`}</div>` : `
+      ${res ? `<div class="card" data-k="search-results">${res.length ? groupResults(res) : `<div class="muted small">No match in your foods. Search online or ask the AI without leaving the app:</div>`}${offBlock()}</div>` : `
       <div class="card" data-k="recent-foods"><div class="seg" role="tablist"><button class="${U.recentTab === 'recent' ? 'on' : ''}" data-act="recentTab" data-v="recent">Recent</button><button class="${U.recentTab === 'fav' ? 'on' : ''}" data-act="recentTab" data-v="fav">${ic('star', 'class="inl"')}Favorites</button></div>
         <div class="list scroll5">${listIds.map(itemById).filter(Boolean).map(x => foodRow(x)).join('') || '<div class="muted small" style="padding:10px 0">Tap the star on any food to add it here.</div>'}</div>
         <div class="tiny muted">${U.recentTab === 'fav' ? listIds.length + ' favorites' : 'Last ' + Math.min(25, listIds.length) + ' foods'} \u00b7 scroll for more \u00b7 logs to ${U.meal}</div></div>`}
@@ -719,7 +725,7 @@
         const es = entries.filter(e => e.meal === m), open = S.mealOpen[m] !== false;
         const mt = L.dayTotals(es, foodsById(), recipesById());
         return `<div class="card meal" data-k="meal-${m.toLowerCase()}" data-drop="${m}"><h2 class="tap" data-act="mealToggle" data-v="${m}">${m}<span class="sp"></span><span class="small muted num">${es.length ? r0(mt.cal) + ' kcal' : ''}</span>${chev(open)}</h2>
-          ${open ? `${es.map(e => { const mm = L.entryMacros(e, foodsById(), recipesById()); return `<div class="li tight" data-act="editEntry" data-id="${e.id}"><span class="grip" data-drag="${e.id}" data-act="noop" aria-label="Drag to another meal">${ic('grip')}</span><div class="grow"><div class="small">${esc(entryName(e))} <span class="muted">\u00d7${r1(e.qty)}</span></div><div class="tiny muted num">P${r0(mm.p)} C${r0(mm.c)} F${r0(mm.f)}</div></div><span class="num small">${r0(mm.cal)}</span><span class="muted">${ic('edit', 'class="inl"')}</span></div>`; }).join('') || '<div class="muted small">Nothing yet.</div>'}
+          ${open ? `${es.map(e => { const mm = L.entryMacros(e, foodsById(), recipesById()); return `<div class="li tight" data-act="editEntry" data-id="${e.id}"><span class="grip" data-drag="${e.id}" data-act="noop" aria-label="Drag to another meal">${ic('grip')}</span><div class="grow"><div class="small">${esc(entryName(e))} <span class="muted">${qtyTxt(e)}</span></div><div class="tiny muted num">P${r0(mm.p)} C${r0(mm.c)} F${r0(mm.f)}</div></div><span class="num small">${r0(mm.cal)}</span><span class="muted">${ic('edit', 'class="inl"')}</span></div>`; }).join('') || '<div class="muted small">Nothing yet.</div>'}
           <button class="btn sm ghost" data-act="addToMeal" data-v="${m}" style="align-self:flex-start">${ic('plus')}Add to ${m.toLowerCase()}</button>` : ''}</div>`;
       }).join('')}
       ${entries.length ? `<div class="tiny muted" style="text-align:center">Hold ${ic('grip', 'class="inl"')} and drag to move a food to another meal.</div>` : ''}`;
@@ -761,7 +767,7 @@
       <div class="card" data-k="planned-vs-actual"><h2>${fmtDate(U.mpDay)}</h2>
         <div class="grid2 small num"><div><div class="muted tiny">Planned</div><b>${r0(pT.cal)}</b> / ${r0(g.cal)} kcal<br>P${r0(pT.p)} C${r0(pT.c)} F${r0(pT.f)}</div><div><div class="muted tiny">Eaten</div><b>${r0(aT.cal)}</b> kcal<br>P${r0(aT.p)} C${r0(aT.c)} F${r0(aT.f)}</div></div></div>
       ${MEALS.map(m => { const ps = planned.filter(p => p.meal === m); return `<div class="card tight" data-k="plan-${m.toLowerCase()}"><h2>${m}<span class="sp"></span><button class="btn sm ghost" data-act="planAdd" data-v="${m}">${ic('plus')}Add</button></h2>
-        ${ps.map(p => { const done = logged.some(l => (l.recipeId || l.foodId) === (p.recipeId || p.foodId)); const mm = L.entryMacros(p, foodsById(), recipesById()); return `<div class="li tight"><div class="grow" data-act="editPlan" data-id="${p.id}"><div class="small">${esc(entryName(p))} <span class="muted">\u00d7${r1(p.qty)}</span></div><div class="tiny muted num">${r0(mm.cal)} kcal \u00b7 P${r0(mm.p)}</div></div>${done ? '<span class="badge good">Eaten</span>' : U.mpDay <= today ? `<button class="btn sm ghost" data-act="logPlanned" data-id="${p.id}">Log it</button>` : ''}<button class="iconbtn sm" data-act="unplan" data-id="${p.id}" aria-label="Remove">${ic('close')}</button></div>`; }).join('') || '<div class="tiny muted">Nothing planned.</div>'}</div>`; }).join('')}`;
+        ${ps.map(p => { const done = logged.some(l => (l.recipeId || l.foodId) === (p.recipeId || p.foodId)); const mm = L.entryMacros(p, foodsById(), recipesById()); return `<div class="li tight"><div class="grow" data-act="editPlan" data-id="${p.id}"><div class="small">${esc(entryName(p))} <span class="muted">${qtyTxt(p)}</span></div><div class="tiny muted num">${r0(mm.cal)} kcal \u00b7 P${r0(mm.p)}</div></div>${done ? '<span class="badge good">Eaten</span>' : U.mpDay <= today ? `<button class="btn sm ghost" data-act="logPlanned" data-id="${p.id}">Log it</button>` : ''}<button class="iconbtn sm" data-act="unplan" data-id="${p.id}" aria-label="Remove">${ic('close')}</button></div>`; }).join('') || '<div class="tiny muted">Nothing planned.</div>'}</div>`; }).join('')}`;
   };
   SCREENS['food:goals'] = () => {
     const p = S.profile, g = goalNow(), tdee = L.tdee(p);
@@ -1132,14 +1138,15 @@
       <label class="fl">Daily activity<select class="f" data-in="prof" data-k2="activity">${Object.keys(L.ACTIVITY).map(k => `<option ${S.profile.activity === k ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
       <label class="fl">Experience<select class="f" data-in="prof" data-k2="level">${['beginner', 'intermediate', 'advanced'].map(k => `<option ${S.profile.level === k ? 'selected' : ''}>${k}</option>`).join('')}</select></label></div>
       <div class="tiny muted">Weight comes from your scale through Health Connect. Pounds everywhere.</div></div>
-    <div class="card" data-k="set-ai"><h2>AI (optional)</h2>
-      <div class="small"><b>Leave all three blank</b> and every AI button gives you a prompt to copy into Lumo or the Claude app, then you paste the answer back. Free, nothing to set up.</div>
+    <div class="card" data-k="set-ai"><div class="row" data-act="aiOpen" style="cursor:pointer"><h2 class="grow">AI (optional)</h2><span class="tiny muted">${aiReadyTxt()}</span>${chev(U.aiOpen)}</div>
+      <label class="fl"><span><b>Always tell the AI</b></span><textarea class="f small" rows="2" placeholder="e.g. No workouts Monday or Wednesday (night school). Bad left knee." data-in="ai" data-k2="notes">${esc(S.ai.notes || '')}</textarea><span class="tiny muted">Added to every AI request: plans, workouts, coach, food.</span></label>
+      ${U.aiOpen ? `<div class="small"><b>Leave all three blank</b> and every AI button gives you a prompt to copy into Lumo or the Claude app, then you paste the answer back. Free, nothing to set up.</div>
       <div class="small">Fill them in only if you want the app to call an AI directly. Any service that speaks the "OpenAI-compatible" format works.</div>
       <label class="fl"><span><b>Endpoint URL</b> \u00b7 required for direct AI</span><input class="f" placeholder="https://api.example.com/v1" value="${esc(S.ai.endpoint)}" data-in="ai" data-k2="endpoint"><span class="tiny">The service's API address, from its API docs. Examples: Anthropic <code>https://api.anthropic.com/v1/</code>, Groq <code>https://api.groq.com/openai/v1</code>, OpenRouter <code>https://openrouter.ai/api/v1</code>.</span></label>
       <label class="fl"><span><b>Model</b> \u00b7 required for direct AI</span><input class="f" placeholder="model ID" value="${esc(S.ai.model)}" data-in="ai" data-k2="model"><span class="tiny">The exact model ID from the same docs page (copy it, spelling matters). Pick one that can read photos if you want plate and gear photos.</span></label>
       <label class="fl"><span><b>API key</b> \u00b7 required by most services</span><input class="f" type="password" placeholder="${REAL ? (window.HFDev.hasSecret('ai_key') ? 'Key saved on this phone (type to replace)' : 'Paste your key') : 'Don\'t enter a real key in this preview'}" data-in="ai" data-k2="key"><span class="tiny">Made in the service's console (for Anthropic: console.anthropic.com \u2192 API keys). It costs money per use on paid services. The app keeps it in its private storage on the phone (not in backup files) and only sends it to the endpoint above.</span></label>
       <div class="row small"><span class="grow">Model can read photos</span>${sw(S.ai.vision, 'aiVision')}</div>
-      <button class="btn sm ghost" data-act="aiTest" style="align-self:flex-start">Test connection</button></div>
+      <button class="btn sm ghost" data-act="aiTest" style="align-self:flex-start">Test connection</button>` : ''}</div>
     <div class="card" data-k="set-schemes"><h2>Rep schemes</h2>${Object.entries(S.schemes).map(([k, s]) => `<div class="row small"><b style="width:76px">${s.name}</b><input class="f num w56" type="number" value="${s.lo}" data-in="scheme" data-s="${k}" data-k2="lo"><span>to</span><input class="f num w56" type="number" value="${s.hi}" data-in="scheme" data-s="${k}" data-k2="hi"><span class="muted nw">reps, rest</span><input class="f num w56" type="number" value="${s.rest}" data-in="scheme" data-s="${k}" data-k2="rest"><span class="muted">s</span></div><div class="tiny muted">${esc(s.tip)}</div>`).join('')}
       <button class="btn sm soft" data-act="bridge" data-v="schemes" style="align-self:flex-start">${ic('spark')}Ask AI to review these against my history</button>
       <div class="tiny muted">Weight jumps are 2.5 lb. If a suggested weight doesn't fit your gear, type the real one in the logger.</div></div>
@@ -1230,6 +1237,7 @@
         const c = sets.findIndex(s => !s.done);
         return `<div class="acc open" data-k="logger-ex">${head}
           <div class="acc-b">${exAnim(it.ex).replace('class="exmedia"', 'class="exmedia sm"')}${artBar(it.ex)}
+          ${sets.some(s => s.start && !s.done) ? `<div class="tiny muted" data-k="start-weight">Starting weight picked from your ${esc(S.profile.level || 'beginner')} level and body weight. It's meant to feel easy. If a set feels too heavy, drop the weight: the rest of the sets follow, and next time starts from what you actually lifted.</div>` : ''}
           <div class="setrow tiny muted"><span>Set</span><span>lb</span><span>Reps</span><span title="To failure">F</span><span title="Pain">!</span></div>
           ${sets.map((s, j) => `<div class="setrow ${s.done ? 'done' : j === c ? 'cur' : ''}"><b class="num">${s.drop ? 'D' : j + 1}</b><input type="number" inputmode="decimal" step="2.5" value="${s.w === '' ? '' : s.w}" placeholder="\u2014" data-in="setw" data-i="${j}"><input type="number" inputmode="numeric" value="${s.reps}" data-in="setr" data-i="${j}"><button class="tog fail ${s.fail ? 'on' : ''}" data-act="setFail" data-i="${j}" aria-label="To failure">F</button><button class="tog pain ${s.pain ? 'on' : ''}" data-act="setPain" data-i="${j}" aria-label="Pain">!</button></div>`).join('')}
           <div class="row wrap"><button class="btn sm ghost" data-act="addSet">${ic('plus')}Set</button><button class="btn sm ghost" data-act="dropSet">Drop set</button><button class="btn sm ghost" data-act="swapLog">${ic('swap')}Swap</button><button class="btn sm ghost" data-act="openEx" data-id="${it.ex}">${ic('history')}History</button></div>
@@ -1318,20 +1326,32 @@
     const x = s.r ? recipesById()[s.id] : foodsById()[s.id];
     const m = s.r ? L.scale(L.recipePerContainer(x, foodsById()), s.qty) : L.scale(x, s.qty);
     const fav = S.favFoods.includes(s.id);
-    return `<div class="row"><div class="small muted grow">${s.r ? 'Containers' : `Servings (1 = ${x.serv} ${esc(x.unit)})`} \u00b7 ${esc(x.src || 'Recipe')}${x.barcode ? ' \u00b7 ' + x.barcode : ''}</div><button class="iconbtn star ${fav ? 'on' : ''}" data-act="favFood" data-id="${s.id}" aria-label="Favorite">${ic('star')}</button></div>
-      <div class="row"><button class="btn ghost" data-act="qty" data-v="-0.5">\u2212</button><input class="f num" style="text-align:center;font-size:1.3em" type="number" step="0.25" value="${s.qty}" data-in="qty"><button class="btn ghost" data-act="qty" data-v="0.5">+</button></div>
-      <div class="grid2 small num"><div><b>${r0(m.cal)}</b> kcal</div><div>P${r0(m.p)} C${r0(m.c)} F${r0(m.f)}</div></div>
+    const gps = gramsPer(x, s.r), gm = gps && s.gm !== false;
+    const what = s.r ? `1 container${gps ? ' = ' + r0(gps) + ' g' : ''}` : `1 serving = ${x.servName ? esc(x.servName) : r1(x.serv) + ' ' + esc(x.unit)}${gps && !['g', 'ml'].includes(x.unit) ? ' (' + r0(gps) + ' g)' : ''}`;
+    return `<div class="row"><div class="small muted grow">${what} \u00b7 ${esc(x.src || 'Recipe')}${x.barcode ? ' \u00b7 ' + x.barcode : ''}</div><button class="iconbtn star ${fav ? 'on' : ''}" data-act="favFood" data-id="${s.id}" aria-label="Favorite">${ic('star')}</button></div>
+      ${gps ? `<div class="seg" data-k="qty-mode"><button class="${gm ? 'on' : ''}" data-act="qtyMode" data-v="g">Grams</button><button class="${gm ? '' : 'on'}" data-act="qtyMode" data-v="s">${s.r ? 'Containers' : 'Servings'}</button></div>` : ''}
+      ${gm ? `<div class="row"><button class="btn ghost" data-act="qtyG" data-v="-10">\u2212</button><input class="f num" style="text-align:center;font-size:1.3em" type="number" inputmode="decimal" step="1" value="${r0(s.qty * gps)}" data-in="qtyg"><span class="small muted">g</span><button class="btn ghost" data-act="qtyG" data-v="10">+</button></div>`
+      : `<div class="row"><button class="btn ghost" data-act="qty" data-v="-0.5">\u2212</button><input class="f num" style="text-align:center;font-size:1.3em" type="number" step="0.25" value="${s.qty}" data-in="qty"><button class="btn ghost" data-act="qty" data-v="0.5">+</button></div>`}
+      <div class="grid2 small num" data-k="qty-macros"><div><b>${r0(m.cal)}</b> kcal</div><div>P${r0(m.p)} C${r0(m.c)} F${r0(m.f)}</div></div>
       <div class="chips">${MEALS.map(mm => `<button class="chip ${s.meal === mm ? 'on' : ''}" data-act="sheetMeal" data-v="${mm}">${mm}</button>`).join('')}</div>
       ${s.mode === 'edit' ? `<div class="row"><button class="btn ghost" data-act="${s.plan ? 'unplan' : 'delEntry'}" data-id="${s.entry}">${ic('trash')}Delete</button><button class="btn block" data-act="${s.plan ? 'savePlan' : 'saveEntry'}">Save changes</button></div>` :
       s.plan ? `<button class="btn block" data-act="addPlan">Add to ${fmtDate(U.mpDay)}</button>` : `<button class="btn block" data-act="logFood">Log to ${U.foodDate === today ? 'today' : fmtDate(U.foodDate)}</button>`}`;
   };
-  SHEETS.scan = ({ code }) => `<div class="small">Barcode <b class="num">${esc(code)}</b> isn't in Open Food Facts.</div><button class="btn" data-act="newFood">Enter it by hand</button>`;
-  SHEETS.newFood = () => `<label class="fl">Name<input class="f" id="nf-name" placeholder="e.g. Mom's chili"></label><div class="grid2"><label class="fl">Serving size<input class="f" id="nf-serv" type="number" value="1"></label><label class="fl">Unit<input class="f" id="nf-unit" value="serving"></label>${['cal', 'p', 'c', 'f'].map(k => `<label class="fl">${{ cal: 'Calories', p: 'Protein g', c: 'Carbs g', f: 'Fat g' }[k]}<input class="f num" id="nf-${k}" type="number" value="0"></label>`).join('')}</div><button class="btn block" data-act="saveFood">Save and log</button>`;
+  const gramsPer = (x, r) => r ? (x.cooked ? x.cooked / Math.max(1, x.containers) : null) : ['g', 'ml'].includes(x.unit) ? x.serv : (+x.grams || null);
+  // "90 g" when the food has a gram weight, else "x1.5" servings.
+  const qtyTxt = e => { const x = e.recipeId ? recipesById()[e.recipeId] : foodsById()[e.foodId]; const g = x && gramsPer(x, !!e.recipeId); return g ? r0(e.qty * g) + ' g' : '\u00d7' + r1(e.qty); };
+  SHEETS.scan = ({ code }) => `<div class="small">Barcode <b class="num">${esc(code)}</b> isn't in Open Food Facts.</div>
+      <label class="fl">What is it? (helps the AI)<input class="f" id="scanName" placeholder="e.g. Kirkland protein bar, chocolate"></label>
+      <button class="btn" data-act="foodAI" data-src="scan">${ic('spark')}Fill in macros with AI</button>
+      <button class="btn ghost" data-act="newFood">Enter it by hand</button>`;
+  SHEETS.newFood = () => `<label class="fl">Name<input class="f" id="nf-name" placeholder="e.g. Mom's chili"></label><div class="grid2"><label class="fl">Serving size<input class="f" id="nf-serv" type="number" value="100"></label><label class="fl">Unit<input class="f" id="nf-unit" value="g"></label>${['cal', 'p', 'c', 'f'].map(k => `<label class="fl">${{ cal: 'Calories', p: 'Protein g', c: 'Carbs g', f: 'Fat g' }[k]}<input class="f num" id="nf-${k}" type="number" value="0"></label>`).join('')}</div><button class="btn block" data-act="saveFood">Save and log</button>`;
   SHEETS.weight = () => `<label class="fl">Today's weight (lb)<input class="f num" id="wt" type="number" step="0.1" value="${S.weights[S.weights.length - 1]?.lb || S.profile.weightLb}"></label><div class="tiny muted">Usually comes from your scale through Health Connect. Typed weights stay in this app.</div><button class="btn block" data-act="saveWeight">Save</button>`;
-  SHEETS.bridge = ({ v }) => {
+  SHEETS.bridge = (sh) => {
+    const v = sh.v;
     const prompt = bridgePrompt(v);
     const has = S.ai.endpoint && S.ai.model;
     return `${has ? `<div class="small">Would send this to <b>${esc(S.ai.model)}</b>. (The preview doesn't call AI.)</div>` : `<div class="small">No AI set up. Copy this, paste it into Lumo or the Claude app, then paste the answer back.</div>`}
+      ${extraBox(sh)}
       <textarea class="f small" rows="9" readonly id="bridgeOut">${esc(prompt)}</textarea>
       <button class="btn" data-act="copyBridge">${ic('copy')}Copy prompt</button>
       <label class="fl">Paste the JSON answer<textarea class="f small" rows="4" id="bridgeIn" placeholder='{ ... }'></textarea></label>
@@ -1373,7 +1393,13 @@
       <div class="list">${exs.map(ex => `<div class="li" data-act="openEx" data-id="${ex}">${exThumb(ex)}<div class="grow"><div class="small">${esc(exName(ex))}</div><div class="tiny muted num">${s.sets.filter(x => x.ex === ex).map(x => (x.w ? r1(x.w) + '\u00d7' : '') + x.reps + (x.fail ? 'F' : '')).join(', ')}</div></div>${ic('history', 'class="inl muted"')}</div>`).join('')}</div>`;
   };
 
+  // Everything sent to the AI gets "Always tell the AI" (Settings) and this request's extra details.
   function bridgePrompt(v) {
+    const p = bridgePromptBase(v), x = [S.ai.notes, U.sheet?.extra].map(t => (t || '').trim()).filter(Boolean).join('\n');
+    return x ? p + '\n\nImportant details from me (follow these):\n' + x : p;
+  }
+  const extraBox = s => `<label class="fl" data-k="ai-extra"><span>Add details for the AI <span class="muted">(optional)</span></span><textarea class="f small" rows="2" data-in="bextra" placeholder="e.g. Monday and Wednesday don't work, I have night school">${esc(s.extra || '')}</textarea>${S.ai.notes ? `<span class="tiny muted">Also sends your "Always tell the AI" note from Settings.</span>` : ''}</label>`;
+  function bridgePromptBase(v) {
     const own = EQUIPMENT.filter(e => S.equipment[e.id] === 'own').map(e => e.name).join(', ');
     const me = `I'm a ${S.profile.age}-year-old male, ${S.profile.level}, ${S.profile.weightLb} lb, ${ftIn(S.profile.heightIn)}, training at home with: ${own}.`;
     const weekText = (week, days) => week.map((d, i) => d.length ? `${DAYS[i]} (${days[i].groups.join('+') || 'daily min'}): ${d.map(x => `${exName(x.ex)} ${x.sets}x${schemeOf(x).lo}-${schemeOf(x).hi}`).join('; ')}` : `${DAYS[i]}: rest`).join('\n');
@@ -1396,7 +1422,8 @@
     if (v === 'goal') return `Suggest daily calorie and macro targets. Me: ${S.profile.age}, male, ${ftIn(S.profile.heightIn)}, ${S.profile.weightLb} lb, activity ${S.profile.activity}. Goal ${S.goal.rate}%/week. Last 4 weeks weight: ${S.weights.slice(-28).map(w => w.lb).join(', ')}.\nReturn ONLY JSON: {"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"reason":"string"}`;
     if (v === 'eqphoto') return `Identify all fitness equipment visible in this photo. Match against this catalog:\n${EQUIPMENT.map(e => e.name).join(', ')}\nReturn ONLY valid JSON: { "matches": ["equipment_name", ...] }\n\n(Attach the photo when you paste this.)`;
     if (v === 'eqlink') return `Read this product page and tell me what fitness equipment it is. Match it to one of: ${EQUIPMENT.map(e => e.name).join(', ')}.\nLink: <paste link>\nReturn ONLY JSON: {"name":"string","match":"string or null","price":"string or null"}`;
-    if (v === 'food') return `Analyze this food photo. Estimate portions and ingredients. Return ONLY valid JSON:\n{"foods":[{"name":"string","grams":number,"confidence":number}],"total_calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}\n\n(Attach the photo when you paste this.)`;
+    if (v === 'food') return `Analyze this food photo. Estimate each food's weight in grams and its macros. Return ONLY valid JSON:\n{"foods":[{"name":"string","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}],"total_calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}\n\n(Attach the photo when you paste this.)`;
+    if (v === 'foodai') { const s = U.sheet || {}; return `Find the nutrition facts for this food${s.code ? ` (barcode ${s.code}, UPC/EAN)` : ''}${s.name ? `: ${s.name}` : ''}. Use the product's label if you know it, otherwise a close typical match, and say which.\nGive values for ONE serving and the serving's weight in grams.\nReturn ONLY valid JSON: {"name":"string","brand":"string or null","serving":"string, e.g. 1 bar","serving_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"source":"label | typical estimate","confidence":number}`; }
     return '';
   }
 
@@ -1473,6 +1500,13 @@
   A.photoAI = () => { U.sheet = { kind: 'bridge', title: 'Plate photo', v: 'food' }; render(); };
   A.pickFood = d => { const r = !!d.r; const x = r ? recipesById()[d.id] : foodsById()[d.id]; U.sheet = { kind: 'food', title: x.name, id: d.id, r, qty: 1, meal: U.meal }; render(); };
   A.qty = d => { U.sheet.qty = Math.max(0.25, r1(U.sheet.qty + +d.v)); render(); };
+  const sheetGps = () => { const s = U.sheet; return gramsPer(s.r ? recipesById()[s.id] : foodsById()[s.id], s.r); };
+  A.aiOpen = () => { U.aiOpen = !U.aiOpen; render(); };
+  const aiReadyTxt = () => S.ai.endpoint && S.ai.model ? 'Direct: ' + esc(S.ai.model) : 'Copy and paste';
+  A.qtyMode = d => { U.sheet.gm = d.v === 'g'; render(); };
+  A.qtyG = d => { const g = sheetGps(); U.sheet.qty = Math.max(1, Math.round(U.sheet.qty * g) + +d.v) / g; render(); };
+  // AI macros for a food by barcode and/or name (scan miss, or no match in search).
+  A.foodAI = d => { const name = d.src === 'scan' ? ($('#scanName')?.value || '').trim() : U.q; U.sheet = { kind: 'bridge', title: 'Macros from AI', v: 'foodai', code: d.src === 'scan' ? U.scanCode : '', name }; render(); };
   A.sheetMeal = d => { U.sheet.meal = d.v; render(); };
   A.logFood = () => { const s = U.sheet; S.log.push({ id: 'l' + Date.now(), date: U.foodDate, meal: s.meal, [s.r ? 'recipeId' : 'foodId']: s.id, qty: s.qty }); S.recent = [s.id, ...S.recent.filter(x => x !== s.id)].slice(0, 25); U.sheet = null; U.q = ''; save(); toast('Logged.'); };
   A.editEntry = d => { const e = S.log.find(x => x.id === d.id); if (!e) return; U.sheet = { kind: 'food', mode: 'edit', title: entryName(e), entry: e.id, id: e.recipeId || e.foodId, r: !!e.recipeId, qty: e.qty, meal: e.meal }; render(); };
@@ -1660,7 +1694,7 @@
   A.setupDone = () => { S.profile.setupDone = true; buildPlan(); save(); render(); };
 
   // Workout logger
-  const newSet = (id, scheme) => { const sch = S.schemes[scheme] || S.schemes.build; const nx = S.next[id]; const bw = isBW(id); return { w: bw ? 0 : nx ? nx.w : (lastWeight(id) ?? ''), reps: nx ? nx.reps : sch.lo, fail: false, pain: false, done: false }; };
+  const newSet = (id, scheme) => { const sch = S.schemes[scheme] || S.schemes.build; const nx = S.next[id]; const bw = isBW(id); return { w: bw ? 0 : nx ? nx.w : (lastWeight(id) ?? startW(id, scheme) ?? ''), start: !bw && !nx && lastWeight(id) == null, reps: nx ? nx.reps : sch.lo, fail: false, pain: false, done: false }; };
   A.startWorkout = d => {
     const w = todaysWorkout()[+d.i];
     if (!w || !w.items.length) return;
@@ -1740,7 +1774,14 @@
   IN.rname = el => { U.draft.name = el.value; };
   IN.ringq = el => { U.draft.ing[+el.dataset.i].qty = +el.value; render(); };
   IN.radd = el => { if (!el.value) return; const f = foodsById()[el.value]; U.draft.ing.push({ foodId: el.value, qty: f.unit === 'g' ? 100 : 1 }); render(); };
-  IN.setw = el => { U.log.sets[U.log.idx][+el.dataset.i].w = el.value === '' ? '' : +el.value; };
+  // Changing the weight carries it to the sets you haven't done yet (drop to 80 -> the rest are 80).
+  IN.bextra = el => { U.sheet.extra = el.value; const o = $('#bridgeOut'); if (o) o.value = bridgePrompt(U.sheet.v); };
+  IN.qtyg = el => { const g = sheetGps(); if (g && +el.value > 0) U.sheet.qty = +el.value / g; const m = $('[data-k="qty-macros"]'); if (m) { const s = U.sheet, x = s.r ? recipesById()[s.id] : foodsById()[s.id]; const t = s.r ? L.scale(L.recipePerContainer(x, foodsById()), s.qty) : L.scale(x, s.qty); m.innerHTML = `<div><b>${r0(t.cal)}</b> kcal</div><div>P${r0(t.p)} C${r0(t.c)} F${r0(t.f)}</div>`; } };
+  IN.setw = el => {
+    const i = +el.dataset.i, w = el.value === '' ? '' : +el.value, sets = U.log.sets[U.log.idx];
+    sets[i].w = w; sets[i].start = false;
+    sets.forEach((s, j) => { if (j > i && !s.done) { s.w = w; s.start = false; const inp = document.querySelector(`[data-in="setw"][data-i="${j}"]`); if (inp) inp.value = w; } });
+  };
   IN.setr = el => { U.log.sets[U.log.idx][+el.dataset.i].reps = +el.value; };
   IN.tgt = el => { S.targets[el.dataset.m][el.dataset.k2] = +el.value; buildPlan(); };
   IN.wishlink = el => { S.wishLinks[el.dataset.k2] = el.value; save(); };
@@ -1757,7 +1798,7 @@
     const fn = A[el.dataset.act];
     if (fn) fn(el.dataset, el, ev);
   });
-  const LIVE = ['ingq', 'foodq', 'libq', 'swapq', 'planq', 'rate', 'setw', 'setr', 'qty', 'rname', 'wizName'];
+  const LIVE = ['ingq', 'foodq', 'libq', 'swapq', 'planq', 'rate', 'setw', 'setr', 'qty', 'qtyg', 'bextra', 'rname', 'wizName'];
   const onIn = ev => { const el = ev.target.closest('[data-in]'); if (!el) return; const fn = IN[el.dataset.in]; if (fn) fn(el, ev); };
   phone.addEventListener('input', ev => { if (LIVE.includes(ev.target.dataset?.in)) onIn(ev); });
   phone.addEventListener('change', ev => { const k = ev.target.dataset?.in; if (!LIVE.includes(k)) onIn(ev); if (k === 'qty') render(); });
@@ -1824,7 +1865,8 @@
     const per = q > 0 && n['energy-kcal_serving'] != null ? 'serving' : '100g';
     const v = k => +(n[k + '_' + per] ?? (per === '100g' ? n[k] : 0)) || 0;
     const name = [p.product_name, p.brands && p.brands.split(',')[0]].filter(Boolean).join(' \u00b7 ') || 'Barcode ' + code;
-    return { id: 'off' + code, name, src: 'OpenFoodFacts', serv: per === 'serving' ? q : 100, unit: per === 'serving' ? (p.serving_size || 'g').replace(/^[\d.,\s]+/, '').trim() || 'g' : 'g', cal: r1(v('energy-kcal')), p: r1(v('proteins')), c: r1(v('carbohydrates')), f: r1(v('fat')), barcode: code };
+    // serving_quantity is in grams (ml for drinks), so portions can always be entered in grams.
+    return { id: 'off' + code, name, src: 'OpenFoodFacts', serv: per === 'serving' ? q : 100, unit: 'g', servName: per === 'serving' && p.serving_size ? p.serving_size : '', cal: r1(v('energy-kcal')), p: r1(v('proteins')), c: r1(v('carbohydrates')), f: r1(v('fat')), barcode: code };
   }
   A.scanReal = async () => {
     const r = await native('scan');
@@ -1840,6 +1882,44 @@
     }
     if (!f) { U.scanCode = code; U.sheet = { kind: 'scan', title: 'Not found', code }; return render(); }
     U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; render();
+  };
+
+  // ----- Online food search (Open Food Facts), right inside the food log -----
+  async function getJson(url) {
+    if (REAL) { const r = await native('http', { url }); if (r.error) throw new Error(r.error); if (r.status < 200 || r.status > 299) throw new Error('HTTP ' + r.status); return JSON.parse(r.body || 'null'); }
+    const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json();
+  }
+  A.offSearch = async () => {
+    const q = (U.q || '').trim(); if (!q) return;
+    U.off = { q, busy: true, items: [] }; render();
+    const fields = 'code,product_name,brands,nutriments,serving_size,serving_quantity';
+    let items = [], err = '';
+    try {
+      const j = await getJson(`https://search.openfoodfacts.org/search?q=${encodeURIComponent(q)}&page_size=20&fields=${fields}`);
+      items = (j && j.hits) || [];
+    } catch (e) { err = e.message; }
+    if (!items.length) {
+      try {
+        const j = await getJson(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&json=1&page_size=20&fields=${fields}`);
+        items = (j && j.products) || []; err = '';
+      } catch (e) { err = err || e.message; }
+    }
+    items = items.filter(p => p.code && p.product_name && p.nutriments && (p.nutriments['energy-kcal_100g'] != null || p.nutriments['energy-kcal_serving'] != null)).map(p => offFood(p.code, p));
+    if (U.off?.q !== q) return;
+    U.off = { q, busy: false, items, err }; render();
+  };
+  A.offPick = d => {
+    const f = U.off?.items?.[+d.i]; if (!f) return;
+    if (!S.foods.some(x => x.id === f.id)) { S.foods.push(f); save(); }
+    if (topFull()?.kind === 'ingPick') return A.ingAdd({ id: f.id });
+    U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; render();
+  };
+  // Results card shown under "No match in your foods" (and below your own matches).
+  window.offBlock = () => {
+    const o = U.off && U.off.q === (U.q || '').trim() ? U.off : null;
+    const btns = `<div class="row wrap"><button class="btn sm" data-act="offSearch" ${o?.busy ? 'disabled' : ''}>${ic('search')}${o?.busy ? 'Searching\u2026' : 'Search online'}</button><button class="btn sm soft" data-act="foodAI" data-src="search">${ic('spark')}Ask AI for macros</button><button class="btn sm ghost" data-act="newFood">${ic('plus')}By hand</button></div>`;
+    if (!o || o.busy) return btns;
+    return `${o.items.length ? `<div class="tiny muted caps">Open Food Facts</div><div class="list">${o.items.map((f, i) => `<div class="li" data-act="offPick" data-i="${i}"><div class="grow"><div class="small">${esc(f.name)}</div><div class="tiny muted num">${r0(f.cal)} kcal \u00b7 P${r0(f.p)} C${r0(f.c)} F${r0(f.f)} per ${f.servName ? esc(f.servName) : r0(f.serv) + ' g'}</div></div></div>`).join('')}</div>` : `<div class="small muted">${o.err ? 'Online search failed: ' + esc(o.err) : 'Nothing online for "' + esc(o.q) + '".'} Try fewer words, or ask the AI.</div>`}${btns}`;
   };
 
   // ----- Health Connect -----
@@ -1935,6 +2015,7 @@
     const needsImg = s.v === 'food' || s.v === 'eqphoto';
     return `<div class="small">Sends to <b>${esc(S.ai.model)}</b>${window.HFDev.hasSecret('ai_key') ? '' : ' (no API key saved)'}.</div>
       ${needsImg ? `<label class="btn ghost sm" style="cursor:pointer;align-self:flex-start">${ic('camera')}${s.img ? 'Change photo' : 'Add a photo'}<input type="file" accept="image/*" data-in="aiImg" hidden></label>${s.img ? `<img src="${s.img}" alt="" style="max-height:160px;border-radius:8px;align-self:flex-start">` : ''}` : ''}
+      ${extraBox(s)}
       <button class="btn" data-act="aiSend" ${s.busy ? 'disabled' : ''}>${ic('spark')}${s.busy ? 'Asking\u2026' : s.answer ? 'Ask again' : 'Ask AI'}</button>
       ${s.err ? `<div class="small" style="color:var(--a-alert)">${esc(s.err)}</div>` : ''}
       ${s.answer ? aiAnswerView(s) : ''}
@@ -1948,7 +2029,8 @@
     const j = parseJson(s.answer); if (!j) return '';
     if (j.suggestions) return `<ul class="blist">${j.suggestions.map(x => `<li><span class="bn"><b>${esc(x.title)}</b>: ${esc(x.change || '')} <span class="muted">${esc(x.why || '')}</span></span></li>`).join('')}</ul>`;
     if (j.exercises) return `<b class="small">${esc(j.routine_name || 'Workout')}</b><ul class="blist">${j.exercises.map(x => `<li><span class="bn">${esc(x.name)}${aiEx(x.name) ? '' : ' <span class="muted">(not in your list)</span>'}</span><span class="bt num">${x.sets} \u00d7 ${esc(String(x.reps))}</span></li>`).join('')}</ul>`;
-    if (j.foods) return `<ul class="blist">${j.foods.map(x => `<li><span class="bn">${esc(x.name)}</span><span class="bt num">${r0(x.grams)} g</span></li>`).join('')}</ul><div class="small num">${r0(j.total_calories)} kcal \u00b7 P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div>`;
+    if (j.serving_g != null) return `<div class="small"><b>${esc(j.name || '')}</b>${j.brand ? ' \u00b7 ' + esc(j.brand) : ''}</div><div class="small num">${esc(j.serving || '1 serving')} (${r0(j.serving_g)} g): ${r0(j.calories)} kcal \u00b7 P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div><div class="tiny muted">${esc(j.source || '')}</div>`;
+    if (j.foods) return `<ul class="blist">${j.foods.map(x => `<li><span class="bn">${esc(x.name)}</span><span class="bt num">${r0(x.grams)} g${x.calories != null ? ' \u00b7 ' + r0(x.calories) + ' kcal' : ''}</span></li>`).join('')}</ul><div class="small num">${r0(j.total_calories)} kcal \u00b7 P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div>`;
     if (j.calories) return `<div class="small num">${r0(j.calories)} kcal \u00b7 P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div><div class="tiny muted">${esc(j.reason || '')}</div>`;
     if (j.matches) return `<div class="small">Found: ${j.matches.map(esc).join(', ') || 'nothing from your list'}</div>`;
     if (j.why) return `<div class="small">${esc(j.why)}</div>`;
@@ -1957,12 +2039,23 @@
   const aiEx = name => { const n = String(name).toLowerCase().replace(/[^a-z0-9 ]/g, ''); return EX.find(e => e.n.toLowerCase().replace(/[^a-z0-9 ]/g, '') === n) || EX.find(e => e.n.toLowerCase().includes(n) || n.includes(e.n.toLowerCase())); };
   const applyRecipe = A.bridgeApply;
   A.bridgeApply = d => {
-    if (!REAL || d.v === 'recipe') return applyRecipe(d);
+    if (d.v === 'recipe' || (!REAL && d.v !== 'foodai')) return applyRecipe(d);
     const j = parseJson($('#bridgeIn').value);
     if (!j) return toast('That answer isn\'t valid JSON.');
     if (d.v === 'food') {
-      const f = { id: 'c' + Date.now(), name: 'Plate: ' + (j.foods || []).map(x => x.name).slice(0, 3).join(', '), src: 'Custom', serv: 1, unit: 'plate', cal: r0(j.total_calories), p: r0(j.protein_g), c: r0(j.carbs_g), f: r0(j.fat_g) };
-      S.foods.push(f); S.log.push({ id: 'l' + Date.now(), date: U.foodDate, meal: U.meal, foodId: f.id, qty: 1 }); toast('Logged to ' + U.meal.toLowerCase() + '.');
+      // Each food on the plate becomes its own entry, in grams, so every portion can be adjusted.
+      const t = Date.now(), parts = (j.foods || []).filter(x => +x.grams > 0 && x.calories != null);
+      const add = (k, name, grams, m) => { const f = { id: 'c' + t + '_' + k, name, src: 'AI photo', serv: Math.round(grams), unit: 'g', cal: r1(+m.cal || 0), p: r1(+m.p || 0), c: r1(+m.c || 0), f: r1(+m.f || 0) }; S.foods.push(f); S.log.push({ id: 'l' + t + '_' + k, date: U.foodDate, meal: U.meal, foodId: f.id, qty: 1 }); };
+      if (parts.length) parts.forEach((x, k) => add(k, x.name, +x.grams, { cal: x.calories, p: x.protein_g, c: x.carbs_g, f: x.fat_g }));
+      else add(0, 'Plate: ' + (j.foods || []).map(x => x.name).slice(0, 3).join(', '), (j.foods || []).reduce((a, x) => a + (+x.grams || 0), 0) || 300, { cal: j.total_calories, p: j.protein_g, c: j.carbs_g, f: j.fat_g });
+      toast(`Logged ${parts.length || 1} item${parts.length > 1 ? 's' : ''} to ${U.meal.toLowerCase()}. Tap any to change the grams.`);
+    } else if (d.v === 'foodai') {
+      const g = +j.serving_g || 100, s = U.sheet;
+      const f = { id: 'c' + Date.now(), name: [j.name || s.name || 'Food', j.brand].filter(Boolean).join(' \u00b7 '), src: 'AI' + (j.source ? ' (' + j.source + ')' : ''), serv: g, unit: 'g', servName: j.serving || '', cal: r1(+j.calories || 0), p: r1(+j.protein_g || 0), c: r1(+j.carbs_g || 0), f: r1(+j.fat_g || 0) };
+      if (s.code) { f.barcode = s.code; U.scanCode = null; }
+      S.foods.push(f); save();
+      if (topFull()?.kind === 'ingPick') { U.sheet = null; return A.ingAdd({ id: f.id }); }
+      U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; return render();
     } else if (d.v === 'goal') {
       Object.assign(S.goal, { method: 'manual', cal: r0(j.calories), p: r0(j.protein_g), c: r0(j.carbs_g), f: r0(j.fat_g) }); toast('Targets updated.');
     } else if (d.v === 'schemes') {
