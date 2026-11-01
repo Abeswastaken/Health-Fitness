@@ -705,7 +705,7 @@
     return `
       <div class="datenav" data-k="food-date"><button class="iconbtn" data-act="foodDay" data-v="-1" aria-label="Previous day">${ic('back')}</button><button class="dn" data-act="foodDayPick"><b>${d === today ? 'Today' : d === dateAdd(today, -1) ? 'Yesterday' : fmtDate(d)}</b><span class="tiny muted">${d === today ? fmtDate(d) : ''}</span></button><button class="iconbtn" data-act="foodDay" data-v="1" aria-label="Next day" ${d >= today ? 'disabled style="opacity:.3"' : ''}>${ic('fwd')}</button></div>
       <div class="card tight" data-k="day-total"><div class="row num small"><span class="grow"><b class="big2">${r0(t.cal)}</b> / ${r0(g.cal)} kcal</span><span style="color:var(--a-p)">P${r0(t.p)}</span><span style="color:var(--a-c)">C${r0(t.c)}</span><span style="color:var(--a-f)">F${r0(t.f)}</span></div>${macroBar('kcal', t.cal, g.cal, 'var(--a-accent)', '').replace('class="macro"', 'class="macro solo"')}</div>
-      ${d === today && REAL ? `<div class="row" data-k="scanner"><button class="btn sm soft" data-act="photoAI">${ic('camera')}Plate photo (AI)</button><span class="tiny muted grow">Barcode scanning comes with the native app.</span></div>` : ''}
+      ${d === today && REAL ? `<div class="row" data-k="scanner"><button class="btn grow" data-act="scanReal">${ic('scan')}Scan barcode</button><button class="btn soft" data-act="photoAI">${ic('camera')}Plate photo</button></div>` : ''}
       ${d === today && !REAL ? `<div class="viewfinder" data-k="scanner"><div class="frame"><div class="laser"></div></div>
         <div style="position:absolute;top:10px;left:12px;font-size:12px;opacity:.85">Point at a barcode</div>
         <div class="vf-actions"><button class="btn sm" data-act="simScan">${ic('scan')}Simulate scan</button><button class="btn sm" data-act="photoAI" aria-label="Photo of plate">${ic('camera')}Plate photo</button></div></div>` : ''}
@@ -774,7 +774,7 @@
           <label class="fl">Rate: <b class="num">${S.goal.rate > 0 ? '+' : ''}${S.goal.rate}% body weight / week</b> (${r1(Math.abs(p.weightLb * S.goal.rate / 100))} lb)<input type="range" min="-1.25" max="0.75" step="0.05" value="${S.goal.rate}" data-in="rate"></label>
           <div class="tiny muted">Suggested: lose 0.5-1%, lean bulk 0.25-0.5%. You can go outside these; the coach will flag it.</div>
           <div class="small">TDEE ${r0(tdee)} ${S.goal.rate < 0 ? '\u2212' : '+'} ${r0(Math.abs(p.weightLb * S.goal.rate / 100 * 500))} = <b class="num">${r0(g.cal)}</b> kcal</div>` : ''}
-        ${m === 'ai' ? `<div class="small muted">Sends your stats, goal and the last 4 weeks of weight and intake to your AI. No key set, so it uses the copy-and-paste bridge.</div><button class="btn" data-act="bridge" data-v="goal">${ic('copy')}Copy prompt for Lumo / Claude</button>` : ''}
+        ${m === 'ai' ? `<div class="small muted">Sends your stats, goal and the last 4 weeks of weight and intake to your AI. ${aiReady() ? '' : 'No AI set up, so it uses the copy-and-paste bridge.'}</div><button class="btn" data-act="bridge" data-v="goal">${ic(aiReady() ? 'spark' : 'copy')}${aiReady() ? 'Ask AI' : 'Copy prompt for Lumo / Claude'}</button>` : ''}
       </div>
       <div class="card" data-k="presets"><h2>Diet preset</h2><div class="chips">${Object.keys(L.PRESETS).map(k => `<button class="chip ${S.goal.preset === k ? 'on' : ''}" data-act="preset" data-v="${k}">${k}</button>`).join('')}</div>
         <div class="tiny muted">${S.goal.preset === 'Keto' ? 'Keto caps carbs at 30 g.' : 'Splits calories into protein, carbs and fat. Every number stays editable.'}</div>
@@ -1109,7 +1109,7 @@
       <div class="card" data-k="setup-form"><div class="grid2">
         <label class="fl">Age<input class="f num" type="number" value="${p.age}" data-in="prof" data-k2="age"></label>
         ${heightInputs(p)}
-        <label class="fl">Weight (lb)<input class="f num" type="number" value="${p.weightLb}" data-in="prof" data-k2="weightLb">${REAL ? '' : '<span class="tiny">Health Connect keeps this updated</span>'}</label>
+        <label class="fl">Weight (lb)<input class="f num" type="number" value="${p.weightLb}" data-in="prof" data-k2="weightLb"><span class="tiny">Health Connect keeps this updated</span></label>
         <label class="fl">Daily activity<select class="f" data-in="prof" data-k2="activity">${Object.keys(L.ACTIVITY).map(k => `<option ${p.activity === k ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
         <label class="fl">Training experience<select class="f" data-in="prof" data-k2="level">${['beginner', 'intermediate', 'advanced'].map(k => `<option ${p.level === k ? 'selected' : ''}>${k}</option>`).join('')}</select></label></div></div>
       <div class="card" data-k="setup-modules"><h2>What do you want to track?</h2>
@@ -1137,13 +1137,17 @@
       <div class="small">Fill them in only if you want the app to call an AI directly. Any service that speaks the "OpenAI-compatible" format works.</div>
       <label class="fl"><span><b>Endpoint URL</b> \u00b7 required for direct AI</span><input class="f" placeholder="https://api.example.com/v1" value="${esc(S.ai.endpoint)}" data-in="ai" data-k2="endpoint"><span class="tiny">The service's API address, from its API docs. Examples: Anthropic <code>https://api.anthropic.com/v1/</code>, Groq <code>https://api.groq.com/openai/v1</code>, OpenRouter <code>https://openrouter.ai/api/v1</code>.</span></label>
       <label class="fl"><span><b>Model</b> \u00b7 required for direct AI</span><input class="f" placeholder="model ID" value="${esc(S.ai.model)}" data-in="ai" data-k2="model"><span class="tiny">The exact model ID from the same docs page (copy it, spelling matters). Pick one that can read photos if you want plate and gear photos.</span></label>
-      <label class="fl"><span><b>API key</b> \u00b7 required by most services</span><input class="f" type="password" placeholder="Don't enter a real key in this preview" data-in="ai" data-k2="key"><span class="tiny">Made in the service's console (for Anthropic: console.anthropic.com \u2192 API keys). It costs money per use on paid services. The app stores it encrypted on the phone and only sends it to the endpoint above.</span></label>
+      <label class="fl"><span><b>API key</b> \u00b7 required by most services</span><input class="f" type="password" placeholder="${REAL ? (window.HFDev.hasSecret('ai_key') ? 'Key saved on this phone (type to replace)' : 'Paste your key') : 'Don\'t enter a real key in this preview'}" data-in="ai" data-k2="key"><span class="tiny">Made in the service's console (for Anthropic: console.anthropic.com \u2192 API keys). It costs money per use on paid services. The app keeps it in its private storage on the phone (not in backup files) and only sends it to the endpoint above.</span></label>
       <div class="row small"><span class="grow">Model can read photos</span>${sw(S.ai.vision, 'aiVision')}</div>
       <button class="btn sm ghost" data-act="aiTest" style="align-self:flex-start">Test connection</button></div>
     <div class="card" data-k="set-schemes"><h2>Rep schemes</h2>${Object.entries(S.schemes).map(([k, s]) => `<div class="row small"><b style="width:76px">${s.name}</b><input class="f num w56" type="number" value="${s.lo}" data-in="scheme" data-s="${k}" data-k2="lo"><span>to</span><input class="f num w56" type="number" value="${s.hi}" data-in="scheme" data-s="${k}" data-k2="hi"><span class="muted nw">reps, rest</span><input class="f num w56" type="number" value="${s.rest}" data-in="scheme" data-s="${k}" data-k2="rest"><span class="muted">s</span></div><div class="tiny muted">${esc(s.tip)}</div>`).join('')}
       <button class="btn sm soft" data-act="bridge" data-v="schemes" style="align-self:flex-start">${ic('spark')}Ask AI to review these against my history</button>
       <div class="tiny muted">Weight jumps are 2.5 lb. If a suggested weight doesn't fit your gear, type the real one in the logger.</div></div>
-    ${REAL ? `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Comes with the native app. For now, add weigh-ins by hand on Home.</div></div>` : `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Samsung Health shares your scale and watch data through Health Connect.</div>
+    ${REAL ? `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Samsung Health shares your scale and watch through Health Connect. Weigh-ins you add by hand stay in this app only.</div>
+      ${S.hc.connected ? `${[['weight', 'Read body weight'], ['hr', 'Read heart rate (workout calories)'], ['rhr', 'Read resting heart rate'], ['sleep', 'Read sleep']].map(([k, l]) => `<div class="row small"><span class="grow">${l}${(S.hc.granted || []).includes(k) ? '' : ' <span class="muted">(not allowed)</span>'}</span>${sw(S.hc.read[k], 'hcRead', `data-k2="${k}"`)}</div>`).join('')}
+      <div class="row small"><span class="grow">Write workouts${(S.hc.granted || []).includes('exercise') ? '' : ' <span class="muted">(not allowed)</span>'}</span>${sw(S.hc.write.sessions, 'hcWrite')}</div>
+      <label class="fl">When the watch also logged the same workout<select class="f" data-in="hcConflict">${[['skip', 'Keep the watch\'s, don\'t send mine (recommended)'], ['app', 'Send mine too']].map(([k, l]) => `<option value="${k}" ${S.hc.conflict === k || (k === 'skip' && S.hc.conflict !== 'app') ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <div class="row"><button class="btn sm ghost" data-act="hcSyncNow">Sync now</button><button class="btn sm ghost" data-act="hcConnect">Permissions</button><button class="btn sm ghost" data-act="hcOpen">Open Health Connect</button></div>` : `<button class="btn" data-act="hcConnect">Connect Health Connect</button>`}</div>` : `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Samsung Health shares your scale and watch data through Health Connect.</div>
       ${[['weight', 'Read body weight'], ['hr', 'Read heart rate'], ['rhr', 'Read resting heart rate'], ['sleep', 'Read sleep']].map(([k, l]) => `<div class="row small"><span class="grow">${l}</span>${sw(S.hc.read[k], 'hcRead', `data-k2="${k}"`)}</div>`).join('')}
       <div class="row small"><span class="grow">Write workouts</span>${sw(S.hc.write.sessions, 'hcWrite')}</div>
       <label class="fl">When the watch also logged the same workout<select class="f" data-in="hcConflict">${HC_CHOICES.map(([k, l]) => `<option value="${k}" ${S.hc.conflict === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>`}
@@ -1475,7 +1479,7 @@
   A.saveEntry = () => { const s = U.sheet, e = S.log.find(x => x.id === s.entry); if (e) { e.qty = s.qty; e.meal = s.meal; } U.sheet = null; save(); toast('Updated.'); };
   A.delEntry = d => { S.log = S.log.filter(e => e.id !== d.id); U.sheet = null; save(); toast('Removed.'); };
   A.newFood = () => { U.sheet = { kind: 'newFood', title: 'Custom food' }; render(); };
-  A.saveFood = () => { const v = k => $('#nf-' + k).value; const f = { id: 'c' + Date.now(), name: v('name') || 'Custom food', src: 'Custom', serv: +v('serv') || 1, unit: v('unit'), cal: +v('cal'), p: +v('p'), c: +v('c'), f: +v('f') }; S.foods.push(f); if (topFull()?.kind === 'ingPick') { U.sheet = null; save(); return A.ingAdd({ id: f.id }); } U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; save(); render(); };
+  A.saveFood = () => { const v = k => $('#nf-' + k).value; const f = { id: 'c' + Date.now(), name: v('name') || 'Custom food', src: 'Custom', serv: +v('serv') || 1, unit: v('unit'), cal: +v('cal'), p: +v('p'), c: +v('c'), f: +v('f') }; if (U.scanCode) { f.barcode = U.scanCode; U.scanCode = null; } S.foods.push(f); if (topFull()?.kind === 'ingPick') { U.sheet = null; save(); return A.ingAdd({ id: f.id }); } U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; save(); render(); };
   A.newRecipe = () => { U.draft = { id: 'r' + Date.now(), name: 'New recipe', containers: 4, ing: [] }; pushFull({ kind: 'recipe' }); };
   A.editRecipe = d => { U.draft = JSON.parse(JSON.stringify(recipesById()[d.id])); pushFull({ kind: 'recipe' }); };
   A.rcont = d => { U.draft.containers = Math.max(1, U.draft.containers + +d.v); render(); };
@@ -1709,11 +1713,12 @@
     const after = game();
     save();
     const sid = S.sessions[S.sessions.length - 1].id;
+    hcWorkoutHr(S.sessions[S.sessions.length - 1], st.start);
     U.stack = [{ kind: 'summary', min, setCount: sets.length, kcal, avgHr, recs, xp: after.xp - before.xp, gold: after.goldEarned - before.goldEarned, loot: L.loot(sid), bossHit: after.boss.dmg - before.boss.dmg, boss: after.boss, levelUp: after.lv > before.lv ? { lv: after.lv, title: after.title } : null, hcPick: S.hc.conflict, dup: !REAL && st.kind === 'main' && S.hc.write.sessions ? 'from 7:02 to 7:48 PM (Galaxy Watch)' : null }];
     U.keepFullScroll = false; U.log = null; U.soreOpen = false; render();
   };
   A.hcPick = d => { topFull().hcPick = d.v; render(); };
-  A.closeSummary = () => { const f = topFull(); const msg = f?.dup ? { merge: 'Saved. Merged with the watch workout in Health Connect.', app: 'Saved. Sent the app\'s workout to Health Connect.', watch: 'Saved. Kept the watch\'s workout in Health Connect.', skip: 'Saved in the app only.' }[f.hcPick] : 'Saved.'; U.stack = []; toast(msg); };
+  A.closeSummary = () => { hcSendWorkout(S.sessions[S.sessions.length - 1]); const f = topFull(); const msg = f?.dup ? { merge: 'Saved. Merged with the watch workout in Health Connect.', app: 'Saved. Sent the app\'s workout to Health Connect.', watch: 'Saved. Kept the watch\'s workout in Health Connect.', skip: 'Saved in the app only.' }[f.hcPick] : 'Saved.'; U.stack = []; toast(msg); };
 
   // ---------- Inputs ----------
   const IN = {};
@@ -1730,7 +1735,7 @@
   IN.prof = el => { const k = el.dataset.k2; S.profile[k] = ['activity', 'level'].includes(k) ? el.value : +el.value; save(); };
   IN.htft = el => { S.profile.heightIn = (+el.value || 0) * 12 + (S.profile.heightIn % 12); save(); };
   IN.htin = el => { S.profile.heightIn = Math.floor(S.profile.heightIn / 12) * 12 + Math.min(11.5, +el.value || 0); save(); };
-  IN.ai = el => { if (el.dataset.k2 === 'key') return; S.ai[el.dataset.k2] = el.value; save(); };
+  IN.ai = el => { if (el.dataset.k2 === 'key') { if (REAL) { window.HFDev.setSecret('ai_key', el.value.trim()); el.value = ''; toast(el.placeholder = 'Key saved on this phone.'); } return; } S.ai[el.dataset.k2] = el.value; save(); };
   IN.scheme = el => { S.schemes[el.dataset.s][el.dataset.k2] = +el.value; save(); };
   IN.rname = el => { U.draft.name = el.value; };
   IN.ringq = el => { U.draft.ing[+el.dataset.i].qty = +el.value; render(); };
@@ -1801,5 +1806,180 @@
   const applyDev = () => document.documentElement.classList.toggle('dev', !REAL || !!S.devPanel);
   applyDev();
   window.App = { render, currentScreen, homeCards: HOME_CARDS, reset: A.resetDemo, state: () => S, back };
+
+  // ---------- Native parts (installed app only): barcode scan, Health Connect, AI ----------
+  // JS asks with HFDev.call(id, method, args); Android answers through HFNative._done(id, result).
+  const NATIVE = { n: 0, waits: {} };
+  window.HFNative = { _done(id, r) { const f = NATIVE.waits[id]; delete NATIVE.waits[id]; if (f) f(r || {}); } };
+  const native = (method, args = {}) => new Promise(res => {
+    if (!REAL || !window.HFDev.call) return res({ error: 'Only in the installed app.' });
+    const id = 'n' + (++NATIVE.n); NATIVE.waits[id] = res;
+    window.HFDev.call(id, method, JSON.stringify(args));
+  });
+
+  // ----- Barcode scan + Open Food Facts -----
+  // Open Food Facts gives nutrients per 100 g and, when it knows it, per serving.
+  function offFood(code, p) {
+    const n = p.nutriments || {}, q = +p.serving_quantity;
+    const per = q > 0 && n['energy-kcal_serving'] != null ? 'serving' : '100g';
+    const v = k => +(n[k + '_' + per] ?? (per === '100g' ? n[k] : 0)) || 0;
+    const name = [p.product_name, p.brands && p.brands.split(',')[0]].filter(Boolean).join(' \u00b7 ') || 'Barcode ' + code;
+    return { id: 'off' + code, name, src: 'OpenFoodFacts', serv: per === 'serving' ? q : 100, unit: per === 'serving' ? (p.serving_size || 'g').replace(/^[\d.,\s]+/, '').trim() || 'g' : 'g', cal: r1(v('energy-kcal')), p: r1(v('proteins')), c: r1(v('carbohydrates')), f: r1(v('fat')), barcode: code };
+  }
+  A.scanReal = async () => {
+    const r = await native('scan');
+    if (r.cancelled) return;
+    if (r.error || !r.code) return toast('Scanner: ' + (r.error || 'nothing read'));
+    const code = r.code;
+    let f = S.foods.find(x => x.barcode === code);
+    if (!f) {
+      toast('Looking up ' + code + '\u2026');
+      const res = await native('http', { url: `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,brands,nutriments,serving_size,serving_quantity` });
+      let j = null; try { j = JSON.parse(res.body || ''); } catch (e) {}
+      if (j && j.status === 1 && j.product) { f = offFood(code, j.product); S.foods.push(f); save(); }
+    }
+    if (!f) { U.scanCode = code; U.sheet = { kind: 'scan', title: 'Not found', code }; return render(); }
+    U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; render();
+  };
+
+  // ----- Health Connect -----
+  // Pull weigh-ins, resting heart rate and sleep. Manual weigh-ins stay as they are.
+  let hcBusy = false, hcLast = 0;
+  async function hcSync(force) {
+    if (!REAL || !S.hc.connected || hcBusy || (!force && Date.now() - hcLast < 15 * 60e3)) return;
+    hcBusy = true;
+    try {
+      const r = await native('hcRead', { days: 365 });
+      if (r.error) return;
+      if (r.weights && S.hc.read.weight) {
+        const manual = new Set(S.weights.filter(w => w.src === 'Manual').map(w => w.date));
+        const hc = r.weights.filter(w => !manual.has(w.date)).map(w => ({ date: w.date, lb: w.lb, src: 'Health Connect' }));
+        S.weights = [...S.weights.filter(w => w.src === 'Manual'), ...hc].sort((a, b) => a.date.localeCompare(b.date));
+        const last = S.weights[S.weights.length - 1]; if (last) S.profile.weightLb = last.lb;
+      }
+      const smp = {};
+      if (r.rhr?.length && S.hc.read.rhr) { const t = r.rhr.find(x => x.date === today); const base = r.rhr.filter(x => x.date < today).slice(-14); smp.rhrToday = t ? t.bpm : null; smp.rhrBase = base.length ? Math.round(base.reduce((a, x) => a + x.bpm, 0) / base.length) : null; }
+      if (r.sleep?.length && S.hc.read.sleep) { const n = r.sleep.find(x => x.date === today); smp.sleepHrs = n ? n.hours : null; }
+      S.hcSamples = smp; S.hc.granted = r.granted || []; hcLast = Date.now(); gameCache = null; save(); render();
+    } finally { hcBusy = false; }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) hcSync(); });
+  A.hcConnect = async () => {
+    const st = await native('hcStatus');
+    if (st.error) return toast(st.error);
+    if (!st.available) { toast(st.needsUpdate ? 'Update Health Connect first.' : 'Install Health Connect first.'); return native('hcOpen'); }
+    const r = await native('hcRequest');
+    const g = r.granted || [];
+    S.hc.connected = g.length > 0; S.hc.granted = g;
+    S.hc.read = { weight: g.includes('weight'), hr: g.includes('hr'), rhr: g.includes('rhr'), sleep: g.includes('sleep') };
+    S.hc.write.sessions = g.includes('exercise');
+    save(); render();
+    toast(g.length ? `Connected: ${g.length} of 7 allowed.` : 'Nothing allowed. You can try again.');
+    hcSync(true);
+  };
+  A.hcOpen = () => native('hcOpen');
+  A.hcSyncNow = () => { hcSync(true).then(() => toast('Synced.')); };
+  // After a workout: fill in watch heart rate, then recompute calories with it.
+  function hcWorkoutHr(sess, startMs) {
+    if (!REAL || !S.hc.connected || !S.hc.read.hr) return;
+    native('hcHeartRate', { start: new Date(startMs).toISOString(), end: new Date().toISOString() }).then(r => {
+      if (!r.avg) return;
+      sess.avgHr = r.avg;
+      sess.kcal = L.sessionCalories(S.profile, sess.min, r.avg, sess.morning ? L.MET.light : L.MET.strength);
+      const f = U.stack.find(x => x.kind === 'summary'); if (f) { f.avgHr = r.avg; f.kcal = sess.kcal; }
+      save(); render();
+    });
+  }
+  function hcSendWorkout(sess) {
+    if (!REAL || !S.hc.connected || !S.hc.write.sessions) return;
+    const end = new Date(sess.start), start = new Date(end.getTime() - sess.min * 60e3);
+    const names = [...new Set(sess.sets.map(x => exName(x.ex)))];
+    native('hcWriteSession', { start: start.toISOString(), end: end.toISOString(), title: sess.morning ? 'Morning movement' : 'Strength workout', notes: names.join(', '), kcal: sess.kcal || 0, force: S.hc.conflict === 'app' }).then(r => {
+      if (r.ok) toast('Sent to Health Connect.');
+      else if (r.overlap) toast('Your watch already logged this workout, so the watch\'s copy stays.');
+      else if (r.error) toast('Health Connect: ' + r.error);
+    });
+  }
+
+  // ----- AI (any OpenAI-compatible service) -----
+  const aiReady = () => REAL && S.ai.endpoint && S.ai.model;
+  const aiUrl = () => { const e = S.ai.endpoint.trim().replace(/\/+$/, ''); return /\/chat\/completions$/.test(e) ? e : e + '/chat/completions'; };
+  async function aiCall(text, img) {
+    const content = img ? [{ type: 'text', text }, { type: 'image_url', image_url: { url: img } }] : text;
+    const r = await native('http', { url: aiUrl(), method: 'POST', useAiKey: true, body: JSON.stringify({ model: S.ai.model, max_tokens: 2000, messages: [{ role: 'user', content }] }) });
+    if (r.error) throw new Error(r.error);
+    let j = null; try { j = JSON.parse(r.body); } catch (e) {}
+    if (r.status < 200 || r.status > 299) throw new Error(`${r.status}: ${(j && (j.error?.message || j.message)) || (r.body || '').slice(0, 160)}`);
+    const msg = j?.choices?.[0]?.message?.content;
+    return Array.isArray(msg) ? msg.map(x => x.text || '').join('') : (msg || '');
+  }
+  A.aiTest = async () => {
+    if (!aiReady()) return toast('Fill in the endpoint and model first.');
+    toast('Testing\u2026');
+    try { const t = await aiCall('Reply with just the word OK.'); toast('Connected. The model said: ' + t.slice(0, 60)); } catch (e) { toast('Failed: ' + e.message); }
+  };
+  // Photo for plate and gear prompts, shrunk before sending.
+  IN.aiImg = el => { const f = el.files?.[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); const k = Math.min(1, 1024 / Math.max(img.width, img.height)); c.width = img.width * k; c.height = img.height * k; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); U.sheet.img = c.toDataURL('image/jpeg', .8); render(); }; img.src = rd.result; }; rd.readAsDataURL(f); };
+  A.aiSend = async () => {
+    const s = U.sheet; if (!s || s.busy) return;
+    const needsImg = s.v === 'food' || s.v === 'eqphoto';
+    if (needsImg && !s.img) return toast('Add a photo first.');
+    s.busy = true; s.err = ''; render();
+    try { s.answer = await aiCall(bridgePrompt(s.v).replace(/\n\n\(Attach the photo when you paste this\.\)/, ''), needsImg ? s.img : null); }
+    catch (e) { s.err = e.message; }
+    s.busy = false; render();
+  };
+  const bridgeBase = SHEETS.bridge;
+  SHEETS.bridge = s => {
+    if (!aiReady()) return bridgeBase(s);
+    const needsImg = s.v === 'food' || s.v === 'eqphoto';
+    return `<div class="small">Sends to <b>${esc(S.ai.model)}</b>${window.HFDev.hasSecret('ai_key') ? '' : ' (no API key saved)'}.</div>
+      ${needsImg ? `<label class="btn ghost sm" style="cursor:pointer;align-self:flex-start">${ic('camera')}${s.img ? 'Change photo' : 'Add a photo'}<input type="file" accept="image/*" data-in="aiImg" hidden></label>${s.img ? `<img src="${s.img}" alt="" style="max-height:160px;border-radius:8px;align-self:flex-start">` : ''}` : ''}
+      <button class="btn" data-act="aiSend" ${s.busy ? 'disabled' : ''}>${ic('spark')}${s.busy ? 'Asking\u2026' : s.answer ? 'Ask again' : 'Ask AI'}</button>
+      ${s.err ? `<div class="small" style="color:var(--a-alert)">${esc(s.err)}</div>` : ''}
+      ${s.answer ? aiAnswerView(s) : ''}
+      <label class="fl">Answer<textarea class="f small" rows="4" id="bridgeIn" placeholder='{ ... }'>${esc(s.answer || '')}</textarea></label>
+      <button class="btn soft" data-act="bridgeApply" data-v="${s.v}">Apply</button>
+      <details class="tiny"><summary>Prompt</summary><textarea class="f small" rows="6" readonly id="bridgeOut">${esc(bridgePrompt(s.v))}</textarea></details>`;
+  };
+  const parseJson = t => { try { return JSON.parse((String(t).match(/\{[\s\S]*\}/) || [''])[0]); } catch (e) { return null; } };
+  // Readable view of the answer before applying it.
+  function aiAnswerView(s) {
+    const j = parseJson(s.answer); if (!j) return '';
+    if (j.suggestions) return `<ul class="blist">${j.suggestions.map(x => `<li><span class="bn"><b>${esc(x.title)}</b>: ${esc(x.change || '')} <span class="muted">${esc(x.why || '')}</span></span></li>`).join('')}</ul>`;
+    if (j.exercises) return `<b class="small">${esc(j.routine_name || 'Workout')}</b><ul class="blist">${j.exercises.map(x => `<li><span class="bn">${esc(x.name)}${aiEx(x.name) ? '' : ' <span class="muted">(not in your list)</span>'}</span><span class="bt num">${x.sets} \u00d7 ${esc(String(x.reps))}</span></li>`).join('')}</ul>`;
+    if (j.foods) return `<ul class="blist">${j.foods.map(x => `<li><span class="bn">${esc(x.name)}</span><span class="bt num">${r0(x.grams)} g</span></li>`).join('')}</ul><div class="small num">${r0(j.total_calories)} kcal \u00b7 P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div>`;
+    if (j.calories) return `<div class="small num">${r0(j.calories)} kcal \u00b7 P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div><div class="tiny muted">${esc(j.reason || '')}</div>`;
+    if (j.matches) return `<div class="small">Found: ${j.matches.map(esc).join(', ') || 'nothing from your list'}</div>`;
+    if (j.why) return `<div class="small">${esc(j.why)}</div>`;
+    return '';
+  }
+  const aiEx = name => { const n = String(name).toLowerCase().replace(/[^a-z0-9 ]/g, ''); return EX.find(e => e.n.toLowerCase().replace(/[^a-z0-9 ]/g, '') === n) || EX.find(e => e.n.toLowerCase().includes(n) || n.includes(e.n.toLowerCase())); };
+  const applyRecipe = A.bridgeApply;
+  A.bridgeApply = d => {
+    if (!REAL || d.v === 'recipe') return applyRecipe(d);
+    const j = parseJson($('#bridgeIn').value);
+    if (!j) return toast('That answer isn\'t valid JSON.');
+    if (d.v === 'food') {
+      const f = { id: 'c' + Date.now(), name: 'Plate: ' + (j.foods || []).map(x => x.name).slice(0, 3).join(', '), src: 'Custom', serv: 1, unit: 'plate', cal: r0(j.total_calories), p: r0(j.protein_g), c: r0(j.carbs_g), f: r0(j.fat_g) };
+      S.foods.push(f); S.log.push({ id: 'l' + Date.now(), date: U.foodDate, meal: U.meal, foodId: f.id, qty: 1 }); toast('Logged to ' + U.meal.toLowerCase() + '.');
+    } else if (d.v === 'goal') {
+      Object.assign(S.goal, { method: 'manual', cal: r0(j.calories), p: r0(j.protein_g), c: r0(j.carbs_g), f: r0(j.fat_g) }); toast('Targets updated.');
+    } else if (d.v === 'schemes') {
+      (j.schemes || []).forEach(x => { const k = Object.keys(S.schemes).find(k => S.schemes[k].name.toLowerCase() === String(x.name).toLowerCase()); if (k) Object.assign(S.schemes[k], { lo: +x.lo || S.schemes[k].lo, hi: +x.hi || S.schemes[k].hi, rest: +x.rest || S.schemes[k].rest }); }); toast('Rep schemes updated.');
+    } else if (d.v === 'eqphoto' || d.v === 'eqlink') {
+      const names = d.v === 'eqphoto' ? (j.matches || []) : [j.match].filter(Boolean);
+      const hit = EQUIPMENT.filter(e => names.some(n => String(n).toLowerCase() === e.name.toLowerCase()));
+      hit.forEach(e => { S.equipment[e.id] = d.v === 'eqphoto' ? 'own' : 'wish'; }); toast(hit.length ? `${d.v === 'eqphoto' ? 'Marked as owned' : 'Added to wishlist'}: ${hit.map(e => e.name).join(', ')}` : 'No match in the gear list.');
+    } else if (d.v === 'workout') {
+      const items = (j.exercises || []).map(x => { const e = aiEx(x.name); return e && { ex: e.id, sets: Math.max(1, Math.min(8, +x.sets || 3)), scheme: 'build' }; }).filter(Boolean);
+      if (!items.length) return toast('None of those exercises are in your list.');
+      U.sheet = null; save();
+      U.log = { kind: 'main', name: j.routine_name || 'AI workout', items, idx: 0, sets: items.map(it => [...Array(it.sets)].map(() => newSet(it.ex, it.scheme))), start: Date.now() };
+      U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; return render();
+    } else { U.sheet = null; return render(); }
+    U.sheet = null; gameCache = null; save(); render();
+  };
   render();
+  if (REAL) hcSync();
 })();

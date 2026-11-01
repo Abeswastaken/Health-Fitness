@@ -1,0 +1,3 @@
+  render();
+  if (REAL) hcSync();
+})();

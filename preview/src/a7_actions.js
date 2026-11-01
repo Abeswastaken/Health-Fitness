@@ -173,7 +173,7 @@
   A.saveEntry = () => { const s = U.sheet, e = S.log.find(x => x.id === s.entry); if (e) { e.qty = s.qty; e.meal = s.meal; } U.sheet = null; save(); toast('Updated.'); };
   A.delEntry = d => { S.log = S.log.filter(e => e.id !== d.id); U.sheet = null; save(); toast('Removed.'); };
   A.newFood = () => { U.sheet = { kind: 'newFood', title: 'Custom food' }; render(); };
-  A.saveFood = () => { const v = k => $('#nf-' + k).value; const f = { id: 'c' + Date.now(), name: v('name') || 'Custom food', src: 'Custom', serv: +v('serv') || 1, unit: v('unit'), cal: +v('cal'), p: +v('p'), c: +v('c'), f: +v('f') }; S.foods.push(f); if (topFull()?.kind === 'ingPick') { U.sheet = null; save(); return A.ingAdd({ id: f.id }); } U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; save(); render(); };
+  A.saveFood = () => { const v = k => $('#nf-' + k).value; const f = { id: 'c' + Date.now(), name: v('name') || 'Custom food', src: 'Custom', serv: +v('serv') || 1, unit: v('unit'), cal: +v('cal'), p: +v('p'), c: +v('c'), f: +v('f') }; if (U.scanCode) { f.barcode = U.scanCode; U.scanCode = null; } S.foods.push(f); if (topFull()?.kind === 'ingPick') { U.sheet = null; save(); return A.ingAdd({ id: f.id }); } U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; save(); render(); };
   A.newRecipe = () => { U.draft = { id: 'r' + Date.now(), name: 'New recipe', containers: 4, ing: [] }; pushFull({ kind: 'recipe' }); };
   A.editRecipe = d => { U.draft = JSON.parse(JSON.stringify(recipesById()[d.id])); pushFull({ kind: 'recipe' }); };
   A.rcont = d => { U.draft.containers = Math.max(1, U.draft.containers + +d.v); render(); };
@@ -407,11 +407,12 @@
     const after = game();
     save();
     const sid = S.sessions[S.sessions.length - 1].id;
+    hcWorkoutHr(S.sessions[S.sessions.length - 1], st.start);
     U.stack = [{ kind: 'summary', min, setCount: sets.length, kcal, avgHr, recs, xp: after.xp - before.xp, gold: after.goldEarned - before.goldEarned, loot: L.loot(sid), bossHit: after.boss.dmg - before.boss.dmg, boss: after.boss, levelUp: after.lv > before.lv ? { lv: after.lv, title: after.title } : null, hcPick: S.hc.conflict, dup: !REAL && st.kind === 'main' && S.hc.write.sessions ? 'from 7:02 to 7:48 PM (Galaxy Watch)' : null }];
     U.keepFullScroll = false; U.log = null; U.soreOpen = false; render();
   };
   A.hcPick = d => { topFull().hcPick = d.v; render(); };
-  A.closeSummary = () => { const f = topFull(); const msg = f?.dup ? { merge: 'Saved. Merged with the watch workout in Health Connect.', app: 'Saved. Sent the app\'s workout to Health Connect.', watch: 'Saved. Kept the watch\'s workout in Health Connect.', skip: 'Saved in the app only.' }[f.hcPick] : 'Saved.'; U.stack = []; toast(msg); };
+  A.closeSummary = () => { hcSendWorkout(S.sessions[S.sessions.length - 1]); const f = topFull(); const msg = f?.dup ? { merge: 'Saved. Merged with the watch workout in Health Connect.', app: 'Saved. Sent the app\'s workout to Health Connect.', watch: 'Saved. Kept the watch\'s workout in Health Connect.', skip: 'Saved in the app only.' }[f.hcPick] : 'Saved.'; U.stack = []; toast(msg); };
 
   // ---------- Inputs ----------
   const IN = {};
@@ -428,7 +429,7 @@
   IN.prof = el => { const k = el.dataset.k2; S.profile[k] = ['activity', 'level'].includes(k) ? el.value : +el.value; save(); };
   IN.htft = el => { S.profile.heightIn = (+el.value || 0) * 12 + (S.profile.heightIn % 12); save(); };
   IN.htin = el => { S.profile.heightIn = Math.floor(S.profile.heightIn / 12) * 12 + Math.min(11.5, +el.value || 0); save(); };
-  IN.ai = el => { if (el.dataset.k2 === 'key') return; S.ai[el.dataset.k2] = el.value; save(); };
+  IN.ai = el => { if (el.dataset.k2 === 'key') { if (REAL) { window.HFDev.setSecret('ai_key', el.value.trim()); el.value = ''; toast(el.placeholder = 'Key saved on this phone.'); } return; } S.ai[el.dataset.k2] = el.value; save(); };
   IN.scheme = el => { S.schemes[el.dataset.s][el.dataset.k2] = +el.value; save(); };
   IN.rname = el => { U.draft.name = el.value; };
   IN.ringq = el => { U.draft.ing[+el.dataset.i].qty = +el.value; render(); };
@@ -499,5 +500,3 @@
   const applyDev = () => document.documentElement.classList.toggle('dev', !REAL || !!S.devPanel);
   applyDev();
   window.App = { render, currentScreen, homeCards: HOME_CARDS, reset: A.resetDemo, state: () => S, back };
-  render();
-})();
