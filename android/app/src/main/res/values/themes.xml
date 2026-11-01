@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.HealthFitness" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#F4F6F1</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowBackground">@color/bg</item>
+    </style>
+    <color name="bg">#F4F6F1</color>
+    <color name="accent">#2F6B3F</color>
+</resources>

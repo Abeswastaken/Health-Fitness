@@ -1,0 +1,28 @@
+const L=require('./logic.js'),assert=require('assert');
+// jake's example: 3x5 @100, did 5,5,11 to failure, PowerBlock step 2.5 -> capped at 110
+let r=L.recommend({sets:3,lo:5,hi:5,w:100},[{w:100,reps:5},{w:100,reps:5},{w:100,reps:11,fail:true}],2.5);
+console.log(r); assert.equal(r.kind,'jump'); assert.equal(r.w,110);
+r=L.recommend({sets:3,lo:8,hi:12,w:50},[{w:50,reps:12},{w:50,reps:12},{w:50,reps:12}],2.5); assert.equal(r.w,52.5);
+r=L.recommend({sets:3,lo:8,hi:12,w:50},[{w:50,reps:9},{w:50,reps:8},{w:50,reps:8}],2.5); assert.equal(r.kind,'reps'); assert.equal(r.reps,9);
+r=L.recommend({sets:3,lo:8,hi:12,w:50},[{w:50,reps:9,pain:true}],2.5); assert.equal(r.kind,'pain');
+const p={sex:'male',weightLb:200,heightIn:70,age:30,activity:'moderate'};
+console.log(Math.round(L.bmr(p)),Math.round(L.tdee(p)),Math.round(L.goalCalories(p,-0.5)));
+assert(Math.abs(L.bmr(p)-1873)<2);
+console.log(L.macrosFor(2000,'Keto'),L.macrosFor(2000,'Standard'));
+const foods={a:{cal:165,p:31,c:0,f:3.6,serv:100},b:{cal:130,p:2.7,c:28,f:0.3,serv:100}};
+const rec={containers:4,ing:[{foodId:'a',qty:800},{foodId:'b',qty:600}]};
+const pc=L.recipePerContainer(rec,foods); console.log(pc); assert.equal(Math.round(pc.cal),525);
+console.log(L.sessionCalories(p,60,null),L.sessionCalories(p,60,130));
+const ex=require('./exercises.json');const byId=Object.fromEntries(ex.map(e=>[e.id,e]));
+const missing=Object.values(L.STAPLES).flat().concat(L.LEG_ROTATION).filter(i=>!byId[i]);console.log('missing staples',missing);
+const gear=new Set(['dumbbell','ez-curl-bar','barbell','smith','smith-cable']);
+const days=[[],['Chest','Arms'],['Back','Core'],['Legs','Arms'],[],['Chest','Shoulders'],['Back','Legs']].map(g=>({groups:g}));
+const tg=Object.fromEntries(L.MUSCLES.map(m=>[m,{min:10,max:20}]));
+const wk=L.buildWeek({days,exById:byId,ownedGear:gear,stars:new Set(),focus:new Set(['chest']),targets:tg,dailyMin:{Legs:1}});
+wk.forEach((d,i)=>console.log(i,d.map(x=>x.ex+'x'+x.sets).join(', ')));
+const tot=L.setsByMuscle(wk.flat(),byId);console.log(Object.fromEntries(Object.entries(tot).map(([k,v])=>[k,v])));
+const dq=L.dailyQuests('2026-11-01');assert.equal(dq.length,3);assert.deepEqual(dq,L.dailyQuests('2026-11-01'));assert.equal(new Set(dq.map(q=>q.id)).size,3);
+assert.equal(L.bossFor('2026-11-01',5).hp,450);assert.equal(L.bossFor('2026-11-01',5).id,L.bossFor('2026-11-01',9).id);
+assert.equal(L.bossDamage({sets:10,volume:2500,mornings:1,foodDays:1,macroDays:0,weighIns:0}),115);
+let drops=0;for(let i=0;i<1000;i++)if(L.loot('s'+i))drops++;assert(drops>200&&drops<400,drops);
+console.log('ok');
