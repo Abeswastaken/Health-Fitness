@@ -1,0 +1,57 @@
+name: Build test APK
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Logic tests (future Kotlin core)
+        working-directory: preview
+        run: node test_logic.js
+
+      - name: Check the preview scripts parse
+        working-directory: preview
+        run: node --check app.js && node --check panel.js && node --check logic.js
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build APK
+        run: gradle -p android assembleDebug --stacktrace
+
+      - name: Name the APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "Health-Fitness-test-${BUILD_NUMBER}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Health-Fitness-test-${{ github.run_number }}
+          path: Health-Fitness-test-*.apk
+
+      - name: Publish test release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-${{ github.run_number }}
+          name: Test build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          files: Health-Fitness-test-*.apk
+          body: |
+            Test APK built from `${{ github.ref_name }}` (${{ github.sha }}).
+            Installs over earlier test builds. Tap the small Dev button for the design panel; "Export file for Claude" shares your notes.
