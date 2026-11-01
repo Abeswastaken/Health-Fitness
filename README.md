@@ -10,9 +10,10 @@ jake's personal fitness app: macro tracker, workout planner, coach checks, Healt
   - `panel.js`: the design panel (colors, fonts, layout, pinned notes for Claude).
   - `*.json`: exercise data and pictures (free-exercise-db photos, everkinetic and workout-guide drawings, CC BY-SA 4.0).
   - `tools/`: scripts that built the data files.
-- `android/`: the **test APK**. It wraps the preview full screen. The small **Dev** button opens the design panel; **Export file for Claude** shares a JSON with the same data the web panel saves (look settings and notes).
+- `android/`: the APK. It wraps the preview full screen. Inside the app (`window.HFDev` present) it starts empty, with no example data, and saves under its own key. Settings > Developer turns on the **Dev** button for the design panel; **Export file for Claude** shares a JSON with the same data the web panel saves (look settings and notes). Settings > Data backs up everything as one JSON file.
+- Not real yet in the APK (comes with the native app): barcode scanning, Health Connect, direct AI calls (AI works by copy and paste).
 
 ## Builds
-GitHub Actions builds on every push: logic tests, then the APK. Each run publishes a pre-release `test-N` with the APK. All builds use the committed `android/app/debug.keystore`, so they install over each other. Never change `applicationId`.
+GitHub Actions builds on every push: logic tests, then the APK. Branch pushes publish a pre-release `test-N`; pushes to `main` publish release `v<version.txt>.<run>`. All builds use the committed `android/app/debug.keystore`, so they install over each other. Never change `applicationId`.
 
 The native Kotlin + Compose app comes after the review passes.

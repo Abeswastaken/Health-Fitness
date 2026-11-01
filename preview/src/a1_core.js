@@ -172,7 +172,9 @@
   ].map(([id, name, src, serv, unit, cal, p, c, f, barcode]) => ({ id, name, src, serv, unit, cal, p, c, f, barcode }));
 
   // ---------- State ----------
-  const KEY = 'hf-preview-v2';
+  // REAL = running inside the installed app (not the review preview): start empty, no example data.
+  const REAL = !!window.HFDev;
+  const KEY = REAL ? 'hf-app-v1' : 'hf-preview-v2';
   const DEFAULT_DAYS = [[], ['Chest', 'Arms'], ['Back', 'Core'], ['Legs', 'Arms'], [], ['Chest', 'Shoulders'], ['Back', 'Legs']];
   const freshState = () => {
     const S = {
@@ -201,6 +203,11 @@
       dismissed: [],
       game: { items: [], equip: {} },
     };
+    if (REAL) {
+      Object.assign(S, { foods: FOODS.filter(f => !/\(example\)/.test(f.name)).map(f => ({ ...f })), favFoods: [], recipes: [], stars: [], focus: [], devPanel: false });
+      S.hc = { connected: false, read: { weight: false, hr: false, sleep: false, rhr: false }, write: { sessions: false }, conflict: 'merge' };
+      return S;
+    }
     seedExamples(S);
     return S;
   };

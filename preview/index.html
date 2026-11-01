@@ -344,6 +344,7 @@ html.apk .phone{max-width:none;margin:0}
 html.apk .panel{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;flex:none;max-height:80vh;border-radius:16px 16px 0 0;z-index:50;transform:translateY(105%);transition:transform .2s}
 html.apk .panel:not(.open){transform:translateY(calc(100% + 40px))}
 html.apk .panel.open{transform:none}
+html.apk:not(.dev) .panel-toggle,html.apk:not(.dev) .panel{display:none!important}
 html.apk .panel-toggle{display:inline-flex;position:fixed;right:10px;bottom:84px;z-index:60;border:0;background:var(--page-accent);color:var(--page);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;opacity:.75;box-shadow:0 2px 8px rgba(0,0,0,.25)}
 </style>
 

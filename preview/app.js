@@ -172,7 +172,9 @@
   ].map(([id, name, src, serv, unit, cal, p, c, f, barcode]) => ({ id, name, src, serv, unit, cal, p, c, f, barcode }));
 
   // ---------- State ----------
-  const KEY = 'hf-preview-v2';
+  // REAL = running inside the installed app (not the review preview): start empty, no example data.
+  const REAL = !!window.HFDev;
+  const KEY = REAL ? 'hf-app-v1' : 'hf-preview-v2';
   const DEFAULT_DAYS = [[], ['Chest', 'Arms'], ['Back', 'Core'], ['Legs', 'Arms'], [], ['Chest', 'Shoulders'], ['Back', 'Legs']];
   const freshState = () => {
     const S = {
@@ -201,6 +203,11 @@
       dismissed: [],
       game: { items: [], equip: {} },
     };
+    if (REAL) {
+      Object.assign(S, { foods: FOODS.filter(f => !/\(example\)/.test(f.name)).map(f => ({ ...f })), favFoods: [], recipes: [], stars: [], focus: [], devPanel: false });
+      S.hc = { connected: false, read: { weight: false, hr: false, sleep: false, rhr: false }, write: { sessions: false }, conflict: 'merge' };
+      return S;
+    }
     seedExamples(S);
     return S;
   };
@@ -581,7 +588,7 @@
     gameCache = { sig, xp, lv, title: L.titleFor(lv), into, need, st, curStreak, gold: goldEarned - spent, goldEarned, spent, owned, mult,
       ach: L.achievements(st), quests: L.QUESTS.map(q => ({ ...q, have: wc[q.key] || 0, done: (wc[q.key] || 0) >= q.goal })),
       daily: L.dailyQuests(today).map(q => ({ ...q, have: Math.min(tc[q.key] || 0, q.goal), done: (tc[q.key] || 0) >= q.goal })),
-      boss: { ...boss, dmg, hits, won: dmg >= boss.hp, ends: dateAdd(ws0, 6) }, bosses: bosses.reverse(), freezesLeft: freezes.length - used,
+      boss: { ...boss, dmg, hits, won: dmg >= boss.hp, ends: dateAdd(ws0, 6) }, bosses: bosses.filter(b => b.dmg > 0).reverse(), freezesLeft: freezes.length - used,
       ev: ev.filter(e => e.xp || e.gold || e.t.startsWith('Streak')).sort((a, b) => b.d.localeCompare(a.d)) };
     return gameCache;
   }
@@ -698,7 +705,8 @@
     return `
       <div class="datenav" data-k="food-date"><button class="iconbtn" data-act="foodDay" data-v="-1" aria-label="Previous day">${ic('back')}</button><button class="dn" data-act="foodDayPick"><b>${d === today ? 'Today' : d === dateAdd(today, -1) ? 'Yesterday' : fmtDate(d)}</b><span class="tiny muted">${d === today ? fmtDate(d) : ''}</span></button><button class="iconbtn" data-act="foodDay" data-v="1" aria-label="Next day" ${d >= today ? 'disabled style="opacity:.3"' : ''}>${ic('fwd')}</button></div>
       <div class="card tight" data-k="day-total"><div class="row num small"><span class="grow"><b class="big2">${r0(t.cal)}</b> / ${r0(g.cal)} kcal</span><span style="color:var(--a-p)">P${r0(t.p)}</span><span style="color:var(--a-c)">C${r0(t.c)}</span><span style="color:var(--a-f)">F${r0(t.f)}</span></div>${macroBar('kcal', t.cal, g.cal, 'var(--a-accent)', '').replace('class="macro"', 'class="macro solo"')}</div>
-      ${d === today ? `<div class="viewfinder" data-k="scanner"><div class="frame"><div class="laser"></div></div>
+      ${d === today && REAL ? `<div class="row" data-k="scanner"><button class="btn sm soft" data-act="photoAI">${ic('camera')}Plate photo (AI)</button><span class="tiny muted grow">Barcode scanning comes with the native app.</span></div>` : ''}
+      ${d === today && !REAL ? `<div class="viewfinder" data-k="scanner"><div class="frame"><div class="laser"></div></div>
         <div style="position:absolute;top:10px;left:12px;font-size:12px;opacity:.85">Point at a barcode</div>
         <div class="vf-actions"><button class="btn sm" data-act="simScan">${ic('scan')}Simulate scan</button><button class="btn sm" data-act="photoAI" aria-label="Photo of plate">${ic('camera')}Plate photo</button></div></div>` : ''}
       <div class="chips" data-k="meal-chips">${MEALS.map(m => `<button class="chip ${U.meal === m ? 'on' : ''}" data-act="meal" data-v="${m}">${m}</button>`).join('')}</div>
@@ -1065,7 +1073,7 @@
         <div class="tiny muted">Every set, morning movement, logged food day, macro day and weigh-in this week hits it. Your weapon adds ${Math.round((G.mult - 1) * 100)}% damage. Tap the fight to replay.</div>
         <ul class="blist">${B.hits.map(h => `<li><span class="bn">${DAYS[dow(h.d)]} ${shortDate(h.d)}</span><span class="bt num">${h.dmg ? `${h.w.sets ? h.w.sets + ' sets \u00b7 ' : ''}${h.w.mornings ? 'morning \u00b7 ' : ''}${h.w.foodDays ? 'food \u00b7 ' : ''}<b>${h.dmg} dmg</b>` : 'no hits'}</span></li>`).join('')}</ul></div>
       <div class="card" data-k="campaign"><h2>Your road<span class="sp"></span><span class="tiny muted">titles by level</span></h2><div class="mapscroll" data-scrollx="${Math.max(0, (L.TITLES.filter(([n]) => G.lv >= n).length - 3) * 78)}">${campaignMap(G.lv)}</div></div>
-      <div class="card tight" data-k="past-bosses"><h2>Past bosses<span class="sp"></span><span class="tiny muted">${G.st.bossKills} defeated</span></h2>${G.bosses.map(b => `<div class="row small"><span class="muted" style="width:56px">${shortDate(b.ws)}</span><span class="grow">${esc(b.boss.name)}</span><span class="num tiny">${b.dmg}/${b.boss.hp}</span><span class="badge ${b.won ? 'good' : ''}">${b.won ? 'Won' : 'Escaped'}</span></div>`).join('')}</div>
+      <div class="card tight" data-k="past-bosses"><h2>Past bosses<span class="sp"></span><span class="tiny muted">${G.st.bossKills} defeated</span></h2>${G.bosses.length ? '' : '<div class="small muted">Your first boss fight is this week.</div>'}${G.bosses.map(b => `<div class="row small"><span class="muted" style="width:56px">${shortDate(b.ws)}</span><span class="grow">${esc(b.boss.name)}</span><span class="num tiny">${b.dmg}/${b.boss.hp}</span><span class="badge ${b.won ? 'good' : ''}">${b.won ? 'Won' : 'Escaped'}</span></div>`).join('')}</div>
       <div class="card" data-k="xp-rules"><h2 class="tap" data-act="rulesToggle">How you earn XP and gold<span class="sp"></span>${chev(U.rulesOpen)}</h2>${U.rulesOpen ? `<ul class="blist">${earnRules().map(([a, b]) => `<li><span class="bn">${a}</span><span class="bt">${b}</span></li>`).join('')}</ul>` : ''}</div>
       <div class="card tight" data-k="xp-log"><h2>Recent rewards</h2>${G.ev.filter(e => !e.small).slice(0, 12).map(e => `<div class="row small"><span class="muted" style="width:46px">${shortDate(e.d)}</span><span class="grow">${esc(e.t)}</span>${e.xp ? `<b class="num" style="color:var(--a-good)">+${e.xp}</b>` : ''}${e.gold ? `<span class="gold num tiny">+${e.gold}g</span>` : ''}</div>`).join('')}</div>`;
     if (tab === 'quests') return head + `
@@ -1101,7 +1109,7 @@
       <div class="card" data-k="setup-form"><div class="grid2">
         <label class="fl">Age<input class="f num" type="number" value="${p.age}" data-in="prof" data-k2="age"></label>
         ${heightInputs(p)}
-        <label class="fl">Weight (lb)<input class="f num" type="number" value="${p.weightLb}" data-in="prof" data-k2="weightLb"><span class="tiny">Health Connect keeps this updated</span></label>
+        <label class="fl">Weight (lb)<input class="f num" type="number" value="${p.weightLb}" data-in="prof" data-k2="weightLb">${REAL ? '' : '<span class="tiny">Health Connect keeps this updated</span>'}</label>
         <label class="fl">Daily activity<select class="f" data-in="prof" data-k2="activity">${Object.keys(L.ACTIVITY).map(k => `<option ${p.activity === k ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
         <label class="fl">Training experience<select class="f" data-in="prof" data-k2="level">${['beginner', 'intermediate', 'advanced'].map(k => `<option ${p.level === k ? 'selected' : ''}>${k}</option>`).join('')}</select></label></div></div>
       <div class="card" data-k="setup-modules"><h2>What do you want to track?</h2>
@@ -1135,12 +1143,14 @@
     <div class="card" data-k="set-schemes"><h2>Rep schemes</h2>${Object.entries(S.schemes).map(([k, s]) => `<div class="row small"><b style="width:76px">${s.name}</b><input class="f num w56" type="number" value="${s.lo}" data-in="scheme" data-s="${k}" data-k2="lo"><span>to</span><input class="f num w56" type="number" value="${s.hi}" data-in="scheme" data-s="${k}" data-k2="hi"><span class="muted nw">reps, rest</span><input class="f num w56" type="number" value="${s.rest}" data-in="scheme" data-s="${k}" data-k2="rest"><span class="muted">s</span></div><div class="tiny muted">${esc(s.tip)}</div>`).join('')}
       <button class="btn sm soft" data-act="bridge" data-v="schemes" style="align-self:flex-start">${ic('spark')}Ask AI to review these against my history</button>
       <div class="tiny muted">Weight jumps are 2.5 lb. If a suggested weight doesn't fit your gear, type the real one in the logger.</div></div>
-    <div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Samsung Health shares your scale and watch data through Health Connect.</div>
+    ${REAL ? `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Comes with the native app. For now, add weigh-ins by hand on Home.</div></div>` : `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Samsung Health shares your scale and watch data through Health Connect.</div>
       ${[['weight', 'Read body weight'], ['hr', 'Read heart rate'], ['rhr', 'Read resting heart rate'], ['sleep', 'Read sleep']].map(([k, l]) => `<div class="row small"><span class="grow">${l}</span>${sw(S.hc.read[k], 'hcRead', `data-k2="${k}"`)}</div>`).join('')}
       <div class="row small"><span class="grow">Write workouts</span>${sw(S.hc.write.sessions, 'hcWrite')}</div>
-      <label class="fl">When the watch also logged the same workout<select class="f" data-in="hcConflict">${HC_CHOICES.map(([k, l]) => `<option value="${k}" ${S.hc.conflict === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
-    <div class="card" data-k="set-data"><h2>Data</h2><div class="row"><button class="btn sm ghost" data-act="exportCsv">Export CSV</button><button class="btn sm ghost" data-act="backup">Backup (encrypted ZIP)</button></div>
-      <button class="btn sm ghost" data-act="resetDemo" style="align-self:flex-start">Reset preview to example data</button></div>
+      <label class="fl">When the watch also logged the same workout<select class="f" data-in="hcConflict">${HC_CHOICES.map(([k, l]) => `<option value="${k}" ${S.hc.conflict === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>`}
+    ${REAL ? `<div class="card" data-k="set-data"><h2>Data</h2><div class="small muted">Everything is saved on this phone. Back up now and then: it shares one file you can keep in Drive or email to yourself.</div>
+      <div class="row"><button class="btn sm ghost" data-act="backupJson">${ic('copy')}Back up (file)</button><button class="btn sm ghost" data-act="wipeAll">${ic('trash')}Clear all data</button></div></div>
+    <div class="card" data-k="set-dev"><h2>Developer</h2><div class="row"><span class="grow">Design panel<br><span class="tiny muted">Shows a small Dev button: change the look live, pin notes, and export a file for Claude.</span></span>${sw(S.devPanel, 'devPanel')}</div><div class="tiny muted num">${esc(window.HFDev.version())}</div></div>` : `<div class="card" data-k="set-data"><h2>Data</h2><div class="row"><button class="btn sm ghost" data-act="exportCsv">Export CSV</button><button class="btn sm ghost" data-act="backup">Backup (encrypted ZIP)</button></div>
+      <button class="btn sm ghost" data-act="resetDemo" style="align-self:flex-start">Reset preview to example data</button></div>`}
     <div class="card" data-k="set-about"><h2>About and credits</h2><div class="tiny muted">Exercise drawings: everkinetic and workout-guide by bryllim (both CC BY-SA 4.0). Exercise data and photos: free-exercise-db (public domain). Muscle and equipment metadata: wger (CC BY-SA 3.0). Food data: USDA FoodData Central, Open Food Facts (ODbL). Darebee and Planfit links open their sites; nothing from them is stored in the app.</div></div></div>`;
   const HC_CHOICES = [['merge', 'Merge: my sets + watch heart rate (recommended)'], ['app', 'Use the app\'s workout'], ['watch', 'Use the watch\'s workout'], ['skip', 'Skip: don\'t send it']];
 
@@ -1543,7 +1553,7 @@
   A.unlocks = d => { const e = EQUIPMENT.find(x => x.id === d.id); U.sheet = { kind: 'unlocks', title: `${e.name} unlocks`, id: d.id }; render(); };
   A.eqSet = d => { const was = S.equipment[d.id]; S.equipment[d.id] = d.v; buildPlan(); save(); const e = EQUIPMENT.find(x => x.id === d.id); U.sheet = null; if (d.v === 'own' && was !== 'own') toast(`${EX.filter(x => x.g === e.gear).length} exercises unlocked. Week rebuilt.`); else render(); };
   A.bridge = d => { U.sheet = { kind: 'bridge', title: { workout: 'Generate a workout', coach: 'Ask coach', plan: 'Ask AI coach about my week', draft: 'Ask AI coach about this draft', goal: 'AI target', eqphoto: 'Gear from photo', eqlink: 'Gear from link', food: 'Plate photo', schemes: 'Review my rep schemes', recipe: 'Split this recipe' }[d.v], v: d.v }; render(); };
-  A.copyBridge = () => { const t = $('#bridgeOut'); navigator.clipboard?.writeText(t.value).then(() => toast('Copied.'), () => { t.select(); }); };
+  A.copyBridge = () => { const t = $('#bridgeOut'); if (window.HFDev?.copyText) { window.HFDev.copyText(t.value); return toast('Copied.'); } navigator.clipboard?.writeText(t.value).then(() => toast('Copied.'), () => { t.select(); }); };
   A.openSession = d => { U.sheet = { kind: 'session', title: 'Workout', id: d.id }; render(); };
 
   // Week
@@ -1640,6 +1650,9 @@
   A.exportCsv = () => toast('The app saves food_log.csv, workouts.csv, recipes.csv, goals.csv to Downloads.');
   A.backup = () => toast('The app asks for a password, then saves an encrypted ZIP.');
   A.resetDemo = () => { S = freshState(); S.profile.setupDone = true; gameCache = null; buildPlan(); save(); U.stack = []; U.sheet = null; toast('Reset to example data.'); };
+  A.devPanel = () => { S.devPanel = !S.devPanel; save(); applyDev(); render(); };
+  A.backupJson = () => { window.HFDev.shareJson('health-fitness-backup-' + today + '.json', JSON.stringify({ kind: 'health-fitness-backup', v: 1, at: new Date().toISOString(), state: S })); };
+  A.wipeAll = () => { if (!confirm('Clear all your data on this phone? This cannot be undone. Back up first if you might want it.')) return; S = freshState(); gameCache = null; save(); U.stack = []; U.sheet = null; applyDev(); render(); };
   A.setupDone = () => { S.profile.setupDone = true; buildPlan(); save(); render(); };
 
   // Workout logger
@@ -1689,14 +1702,14 @@
       if (rec.w !== undefined && done.some(s => s.w > 0)) S.next[it.ex] = { w: rec.w, reps: rec.reps, sets: it.sets };
       recs.push({ ex: it.ex, name: exName(it.ex), rec, sets: done, pr });
     });
-    const avgHr = S.hc.read.hr ? 112 + Math.round(Math.random() * 18) : null;
+    const avgHr = !REAL && S.hc.read.hr ? 112 + Math.round(Math.random() * 18) : null;
     const kcal = L.sessionCalories(S.profile, min, st.kind === 'morning' ? null : avgHr, st.kind === 'morning' ? L.MET.light : L.MET.strength);
     S.sessions.push({ id: 's' + Date.now(), date: today, morning: st.kind === 'morning', start: new Date().toISOString(), min, avgHr, kcal, sets });
     U.lastPrs = prs; gameCache = null;
     const after = game();
     save();
     const sid = S.sessions[S.sessions.length - 1].id;
-    U.stack = [{ kind: 'summary', min, setCount: sets.length, kcal, avgHr, recs, xp: after.xp - before.xp, gold: after.goldEarned - before.goldEarned, loot: L.loot(sid), bossHit: after.boss.dmg - before.boss.dmg, boss: after.boss, levelUp: after.lv > before.lv ? { lv: after.lv, title: after.title } : null, hcPick: S.hc.conflict, dup: st.kind === 'main' && S.hc.write.sessions ? 'from 7:02 to 7:48 PM (Galaxy Watch)' : null }];
+    U.stack = [{ kind: 'summary', min, setCount: sets.length, kcal, avgHr, recs, xp: after.xp - before.xp, gold: after.goldEarned - before.goldEarned, loot: L.loot(sid), bossHit: after.boss.dmg - before.boss.dmg, boss: after.boss, levelUp: after.lv > before.lv ? { lv: after.lv, title: after.title } : null, hcPick: S.hc.conflict, dup: !REAL && st.kind === 'main' && S.hc.write.sessions ? 'from 7:02 to 7:48 PM (Galaxy Watch)' : null }];
     U.keepFullScroll = false; U.log = null; U.soreOpen = false; render();
   };
   A.hcPick = d => { topFull().hcPick = d.v; render(); };
@@ -1784,6 +1797,9 @@
     if (S.tab !== 'home') { go('home'); return true; }
     return false;
   };
+  // Dev panel button only shows when turned on in Settings (installed app). The review preview always shows it.
+  const applyDev = () => document.documentElement.classList.toggle('dev', !REAL || !!S.devPanel);
+  applyDev();
   window.App = { render, currentScreen, homeCards: HOME_CARDS, reset: A.resetDemo, state: () => S, back };
   render();
 })();

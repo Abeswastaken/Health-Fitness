@@ -251,7 +251,7 @@
   A.unlocks = d => { const e = EQUIPMENT.find(x => x.id === d.id); U.sheet = { kind: 'unlocks', title: `${e.name} unlocks`, id: d.id }; render(); };
   A.eqSet = d => { const was = S.equipment[d.id]; S.equipment[d.id] = d.v; buildPlan(); save(); const e = EQUIPMENT.find(x => x.id === d.id); U.sheet = null; if (d.v === 'own' && was !== 'own') toast(`${EX.filter(x => x.g === e.gear).length} exercises unlocked. Week rebuilt.`); else render(); };
   A.bridge = d => { U.sheet = { kind: 'bridge', title: { workout: 'Generate a workout', coach: 'Ask coach', plan: 'Ask AI coach about my week', draft: 'Ask AI coach about this draft', goal: 'AI target', eqphoto: 'Gear from photo', eqlink: 'Gear from link', food: 'Plate photo', schemes: 'Review my rep schemes', recipe: 'Split this recipe' }[d.v], v: d.v }; render(); };
-  A.copyBridge = () => { const t = $('#bridgeOut'); navigator.clipboard?.writeText(t.value).then(() => toast('Copied.'), () => { t.select(); }); };
+  A.copyBridge = () => { const t = $('#bridgeOut'); if (window.HFDev?.copyText) { window.HFDev.copyText(t.value); return toast('Copied.'); } navigator.clipboard?.writeText(t.value).then(() => toast('Copied.'), () => { t.select(); }); };
   A.openSession = d => { U.sheet = { kind: 'session', title: 'Workout', id: d.id }; render(); };
 
   // Week
@@ -348,6 +348,9 @@
   A.exportCsv = () => toast('The app saves food_log.csv, workouts.csv, recipes.csv, goals.csv to Downloads.');
   A.backup = () => toast('The app asks for a password, then saves an encrypted ZIP.');
   A.resetDemo = () => { S = freshState(); S.profile.setupDone = true; gameCache = null; buildPlan(); save(); U.stack = []; U.sheet = null; toast('Reset to example data.'); };
+  A.devPanel = () => { S.devPanel = !S.devPanel; save(); applyDev(); render(); };
+  A.backupJson = () => { window.HFDev.shareJson('health-fitness-backup-' + today + '.json', JSON.stringify({ kind: 'health-fitness-backup', v: 1, at: new Date().toISOString(), state: S })); };
+  A.wipeAll = () => { if (!confirm('Clear all your data on this phone? This cannot be undone. Back up first if you might want it.')) return; S = freshState(); gameCache = null; save(); U.stack = []; U.sheet = null; applyDev(); render(); };
   A.setupDone = () => { S.profile.setupDone = true; buildPlan(); save(); render(); };
 
   // Workout logger
@@ -397,14 +400,14 @@
       if (rec.w !== undefined && done.some(s => s.w > 0)) S.next[it.ex] = { w: rec.w, reps: rec.reps, sets: it.sets };
       recs.push({ ex: it.ex, name: exName(it.ex), rec, sets: done, pr });
     });
-    const avgHr = S.hc.read.hr ? 112 + Math.round(Math.random() * 18) : null;
+    const avgHr = !REAL && S.hc.read.hr ? 112 + Math.round(Math.random() * 18) : null;
     const kcal = L.sessionCalories(S.profile, min, st.kind === 'morning' ? null : avgHr, st.kind === 'morning' ? L.MET.light : L.MET.strength);
     S.sessions.push({ id: 's' + Date.now(), date: today, morning: st.kind === 'morning', start: new Date().toISOString(), min, avgHr, kcal, sets });
     U.lastPrs = prs; gameCache = null;
     const after = game();
     save();
     const sid = S.sessions[S.sessions.length - 1].id;
-    U.stack = [{ kind: 'summary', min, setCount: sets.length, kcal, avgHr, recs, xp: after.xp - before.xp, gold: after.goldEarned - before.goldEarned, loot: L.loot(sid), bossHit: after.boss.dmg - before.boss.dmg, boss: after.boss, levelUp: after.lv > before.lv ? { lv: after.lv, title: after.title } : null, hcPick: S.hc.conflict, dup: st.kind === 'main' && S.hc.write.sessions ? 'from 7:02 to 7:48 PM (Galaxy Watch)' : null }];
+    U.stack = [{ kind: 'summary', min, setCount: sets.length, kcal, avgHr, recs, xp: after.xp - before.xp, gold: after.goldEarned - before.goldEarned, loot: L.loot(sid), bossHit: after.boss.dmg - before.boss.dmg, boss: after.boss, levelUp: after.lv > before.lv ? { lv: after.lv, title: after.title } : null, hcPick: S.hc.conflict, dup: !REAL && st.kind === 'main' && S.hc.write.sessions ? 'from 7:02 to 7:48 PM (Galaxy Watch)' : null }];
     U.keepFullScroll = false; U.log = null; U.soreOpen = false; render();
   };
   A.hcPick = d => { topFull().hcPick = d.v; render(); };
@@ -492,6 +495,9 @@
     if (S.tab !== 'home') { go('home'); return true; }
     return false;
   };
+  // Dev panel button only shows when turned on in Settings (installed app). The review preview always shows it.
+  const applyDev = () => document.documentElement.classList.toggle('dev', !REAL || !!S.devPanel);
+  applyDev();
   window.App = { render, currentScreen, homeCards: HOME_CARDS, reset: A.resetDemo, state: () => S, back };
   render();
 })();

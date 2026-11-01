@@ -1,4 +1,4 @@
-name: Build test APK
+name: Build APK
 
 on:
   push:
@@ -15,6 +15,13 @@ jobs:
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Version
+        run: |
+          base=$(tr -d '[:space:]' < version.txt)
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then v="${base}.${BUILD_NUMBER}"; else v="${base}.${BUILD_NUMBER}-test"; fi
+          echo "VERSION_NAME=$v" >> "$GITHUB_ENV"
+          echo "Version $v"
 
       - name: Logic tests (future Kotlin core)
         working-directory: preview
@@ -37,21 +44,33 @@ jobs:
         run: gradle -p android assembleDebug --stacktrace
 
       - name: Name the APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk "Health-Fitness-test-${BUILD_NUMBER}.apk"
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "Health-Fitness-${VERSION_NAME}.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Health-Fitness-test-${{ github.run_number }}
-          path: Health-Fitness-test-*.apk
+          name: Health-Fitness-${{ env.VERSION_NAME }}
+          path: Health-Fitness-*.apk
 
-      - name: Publish test release
+      - name: Publish test build (branches)
+        if: github.ref_name != 'main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: test-${{ github.run_number }}
-          name: Test build ${{ github.run_number }}
+          name: Test build ${{ env.VERSION_NAME }}
           target_commitish: ${{ github.sha }}
           prerelease: true
-          files: Health-Fitness-test-*.apk
+          files: Health-Fitness-*.apk
+          body: Test APK from `${{ github.ref_name }}`. Installs over earlier builds.
+
+      - name: Publish release (main)
+        if: github.ref_name == 'main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION_NAME }}
+          name: Health-Fitness v${{ env.VERSION_NAME }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: Health-Fitness-*.apk
           body: |
-            Test APK built from `${{ github.ref_name }}` (${{ github.sha }}).
-            Installs over earlier test builds. Tap the small Dev button for the design panel; "Export file for Claude" shares your notes.
+            Installs over earlier builds. Data stays on the phone; use Settings > Data > Back up now and then.
+            Design panel: Settings > Developer.

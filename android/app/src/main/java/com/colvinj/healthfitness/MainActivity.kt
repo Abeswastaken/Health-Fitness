@@ -4,7 +4,10 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -45,6 +48,8 @@ class MainActivity : ComponentActivity() {
                     return true
                 }
             }
+            // Needed for confirm() and prompt() dialogs.
+            webChromeClient = WebChromeClient()
             addJavascriptInterface(Bridge(), "HFDev")
         }
         setContentView(web)
@@ -71,7 +76,13 @@ class MainActivity : ComponentActivity() {
 
     inner class Bridge {
         @JavascriptInterface
-        fun version(): String = "test APK " + BuildConfig.VERSION_NAME
+        fun version(): String = "Health-Fitness " + BuildConfig.VERSION_NAME
+
+        @JavascriptInterface
+        fun copyText(text: String) {
+            val cm = getSystemService(ClipboardManager::class.java)
+            runOnUiThread { cm.setPrimaryClip(ClipData.newPlainText("Health-Fitness", text)) }
+        }
 
         @JavascriptInterface
         fun shareJson(name: String, text: String) {
@@ -82,10 +93,10 @@ class MainActivity : ComponentActivity() {
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "application/json"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "Health-Fitness notes for Claude")
+                putExtra(Intent.EXTRA_SUBJECT, name)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            runOnUiThread { startActivity(Intent.createChooser(send, "Send notes to Claude")) }
+            runOnUiThread { startActivity(Intent.createChooser(send, "Share $safe")) }
         }
     }
 

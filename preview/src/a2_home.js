@@ -202,7 +202,7 @@
     gameCache = { sig, xp, lv, title: L.titleFor(lv), into, need, st, curStreak, gold: goldEarned - spent, goldEarned, spent, owned, mult,
       ach: L.achievements(st), quests: L.QUESTS.map(q => ({ ...q, have: wc[q.key] || 0, done: (wc[q.key] || 0) >= q.goal })),
       daily: L.dailyQuests(today).map(q => ({ ...q, have: Math.min(tc[q.key] || 0, q.goal), done: (tc[q.key] || 0) >= q.goal })),
-      boss: { ...boss, dmg, hits, won: dmg >= boss.hp, ends: dateAdd(ws0, 6) }, bosses: bosses.reverse(), freezesLeft: freezes.length - used,
+      boss: { ...boss, dmg, hits, won: dmg >= boss.hp, ends: dateAdd(ws0, 6) }, bosses: bosses.filter(b => b.dmg > 0).reverse(), freezesLeft: freezes.length - used,
       ev: ev.filter(e => e.xp || e.gold || e.t.startsWith('Streak')).sort((a, b) => b.d.localeCompare(a.d)) };
     return gameCache;
   }

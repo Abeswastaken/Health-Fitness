@@ -1,0 +1,21 @@
+const { chromium } = require('playwright');
+(async () => {
+  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 400, height: 860 } });
+  const errs = []; p.on('pageerror', e => errs.push('PAGE ' + e.message)); p.on('console', m => m.type() === 'error' && errs.push(m.text()));
+  p.on('dialog', d => d.accept());
+  await p.addInitScript(() => { window.HFDev = { version: () => 'Health-Fitness 1.0.5', shareJson: (n, t) => { window.__shared = [n, t.length]; }, copyText: () => {} }; });
+  await p.goto('http://localhost:8766/index.html'); await p.waitForTimeout(2500);
+  const shot = async n => { await p.waitForTimeout(300); await p.screenshot({ path: `shots6/${n}.png` }); };
+  await shot('0setup'); console.log('toggle visible', await p.isVisible('#panelToggle'));
+  await p.click('[data-act=setupDone]'); await shot('1home');
+  await p.click('[data-act=tab][data-v=food]'); await shot('2food');
+  await p.click('[data-act=tab][data-v=train]'); await shot('3train');
+  await p.click('[data-act=tab][data-v=progress]'); await shot('4prog');
+  await p.click('[data-act=sub][data-v=achievements]'); await shot('5adv');
+  await p.click('[data-act=sub][data-v=strength]'); await shot('5str');
+  await p.click('[data-act=settings]'); await p.locator('.full .scroll').evaluate(e => e.scrollTop = 99999); await shot('6settings');
+  await p.click('[data-act=devPanel]'); console.log('toggle visible after', await p.isVisible('#panelToggle'));
+  await p.click('[data-act=backupJson]'); console.log(await p.evaluate(() => window.__shared));
+  await p.click('[data-act=wipeAll]'); await shot('7wiped');
+  console.log(errs.join('\n') || 'no errors'); await b.close();
+})();
