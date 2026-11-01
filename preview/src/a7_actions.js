@@ -12,20 +12,32 @@
     const x = s.r ? recipesById()[s.id] : foodsById()[s.id];
     const m = s.r ? L.scale(L.recipePerContainer(x, foodsById()), s.qty) : L.scale(x, s.qty);
     const fav = S.favFoods.includes(s.id);
-    return `<div class="row"><div class="small muted grow">${s.r ? 'Containers' : `Servings (1 = ${x.serv} ${esc(x.unit)})`} · ${esc(x.src || 'Recipe')}${x.barcode ? ' · ' + x.barcode : ''}</div><button class="iconbtn star ${fav ? 'on' : ''}" data-act="favFood" data-id="${s.id}" aria-label="Favorite">${ic('star')}</button></div>
-      <div class="row"><button class="btn ghost" data-act="qty" data-v="-0.5">−</button><input class="f num" style="text-align:center;font-size:1.3em" type="number" step="0.25" value="${s.qty}" data-in="qty"><button class="btn ghost" data-act="qty" data-v="0.5">+</button></div>
-      <div class="grid2 small num"><div><b>${r0(m.cal)}</b> kcal</div><div>P${r0(m.p)} C${r0(m.c)} F${r0(m.f)}</div></div>
+    const gps = gramsPer(x, s.r), gm = gps && s.gm !== false;
+    const what = s.r ? `1 container${gps ? ' = ' + r0(gps) + ' g' : ''}` : `1 serving = ${x.servName ? esc(x.servName) : r1(x.serv) + ' ' + esc(x.unit)}${gps && !['g', 'ml'].includes(x.unit) ? ' (' + r0(gps) + ' g)' : ''}`;
+    return `<div class="row"><div class="small muted grow">${what} · ${esc(x.src || 'Recipe')}${x.barcode ? ' · ' + x.barcode : ''}</div><button class="iconbtn star ${fav ? 'on' : ''}" data-act="favFood" data-id="${s.id}" aria-label="Favorite">${ic('star')}</button></div>
+      ${gps ? `<div class="seg" data-k="qty-mode"><button class="${gm ? 'on' : ''}" data-act="qtyMode" data-v="g">Grams</button><button class="${gm ? '' : 'on'}" data-act="qtyMode" data-v="s">${s.r ? 'Containers' : 'Servings'}</button></div>` : ''}
+      ${gm ? `<div class="row"><button class="btn ghost" data-act="qtyG" data-v="-10">−</button><input class="f num" style="text-align:center;font-size:1.3em" type="number" inputmode="decimal" step="1" value="${r0(s.qty * gps)}" data-in="qtyg"><span class="small muted">g</span><button class="btn ghost" data-act="qtyG" data-v="10">+</button></div>`
+      : `<div class="row"><button class="btn ghost" data-act="qty" data-v="-0.5">−</button><input class="f num" style="text-align:center;font-size:1.3em" type="number" step="0.25" value="${s.qty}" data-in="qty"><button class="btn ghost" data-act="qty" data-v="0.5">+</button></div>`}
+      <div class="grid2 small num" data-k="qty-macros"><div><b>${r0(m.cal)}</b> kcal</div><div>P${r0(m.p)} C${r0(m.c)} F${r0(m.f)}</div></div>
       <div class="chips">${MEALS.map(mm => `<button class="chip ${s.meal === mm ? 'on' : ''}" data-act="sheetMeal" data-v="${mm}">${mm}</button>`).join('')}</div>
       ${s.mode === 'edit' ? `<div class="row"><button class="btn ghost" data-act="${s.plan ? 'unplan' : 'delEntry'}" data-id="${s.entry}">${ic('trash')}Delete</button><button class="btn block" data-act="${s.plan ? 'savePlan' : 'saveEntry'}">Save changes</button></div>` :
       s.plan ? `<button class="btn block" data-act="addPlan">Add to ${fmtDate(U.mpDay)}</button>` : `<button class="btn block" data-act="logFood">Log to ${U.foodDate === today ? 'today' : fmtDate(U.foodDate)}</button>`}`;
   };
-  SHEETS.scan = ({ code }) => `<div class="small">Barcode <b class="num">${esc(code)}</b> isn't in Open Food Facts.</div><button class="btn" data-act="newFood">Enter it by hand</button>`;
-  SHEETS.newFood = () => `<label class="fl">Name<input class="f" id="nf-name" placeholder="e.g. Mom's chili"></label><div class="grid2"><label class="fl">Serving size<input class="f" id="nf-serv" type="number" value="1"></label><label class="fl">Unit<input class="f" id="nf-unit" value="serving"></label>${['cal', 'p', 'c', 'f'].map(k => `<label class="fl">${{ cal: 'Calories', p: 'Protein g', c: 'Carbs g', f: 'Fat g' }[k]}<input class="f num" id="nf-${k}" type="number" value="0"></label>`).join('')}</div><button class="btn block" data-act="saveFood">Save and log</button>`;
+  const gramsPer = (x, r) => r ? (x.cooked ? x.cooked / Math.max(1, x.containers) : null) : ['g', 'ml'].includes(x.unit) ? x.serv : (+x.grams || null);
+  // "90 g" when the food has a gram weight, else "x1.5" servings.
+  const qtyTxt = e => { const x = e.recipeId ? recipesById()[e.recipeId] : foodsById()[e.foodId]; const g = x && gramsPer(x, !!e.recipeId); return g ? r0(e.qty * g) + ' g' : '\u00d7' + r1(e.qty); };
+  SHEETS.scan = ({ code }) => `<div class="small">Barcode <b class="num">${esc(code)}</b> isn't in Open Food Facts.</div>
+      <label class="fl">What is it? (helps the AI)<input class="f" id="scanName" placeholder="e.g. Kirkland protein bar, chocolate"></label>
+      <button class="btn" data-act="foodAI" data-src="scan">${ic('spark')}Fill in macros with AI</button>
+      <button class="btn ghost" data-act="newFood">Enter it by hand</button>`;
+  SHEETS.newFood = () => `<label class="fl">Name<input class="f" id="nf-name" placeholder="e.g. Mom's chili"></label><div class="grid2"><label class="fl">Serving size<input class="f" id="nf-serv" type="number" value="100"></label><label class="fl">Unit<input class="f" id="nf-unit" value="g"></label>${['cal', 'p', 'c', 'f'].map(k => `<label class="fl">${{ cal: 'Calories', p: 'Protein g', c: 'Carbs g', f: 'Fat g' }[k]}<input class="f num" id="nf-${k}" type="number" value="0"></label>`).join('')}</div><button class="btn block" data-act="saveFood">Save and log</button>`;
   SHEETS.weight = () => `<label class="fl">Today's weight (lb)<input class="f num" id="wt" type="number" step="0.1" value="${S.weights[S.weights.length - 1]?.lb || S.profile.weightLb}"></label><div class="tiny muted">Usually comes from your scale through Health Connect. Typed weights stay in this app.</div><button class="btn block" data-act="saveWeight">Save</button>`;
-  SHEETS.bridge = ({ v }) => {
+  SHEETS.bridge = (sh) => {
+    const v = sh.v;
     const prompt = bridgePrompt(v);
     const has = S.ai.endpoint && S.ai.model;
     return `${has ? `<div class="small">Would send this to <b>${esc(S.ai.model)}</b>. (The preview doesn't call AI.)</div>` : `<div class="small">No AI set up. Copy this, paste it into Lumo or the Claude app, then paste the answer back.</div>`}
+      ${extraBox(sh)}
       <textarea class="f small" rows="9" readonly id="bridgeOut">${esc(prompt)}</textarea>
       <button class="btn" data-act="copyBridge">${ic('copy')}Copy prompt</button>
       <label class="fl">Paste the JSON answer<textarea class="f small" rows="4" id="bridgeIn" placeholder='{ ... }'></textarea></label>
@@ -67,7 +79,13 @@
       <div class="list">${exs.map(ex => `<div class="li" data-act="openEx" data-id="${ex}">${exThumb(ex)}<div class="grow"><div class="small">${esc(exName(ex))}</div><div class="tiny muted num">${s.sets.filter(x => x.ex === ex).map(x => (x.w ? r1(x.w) + '×' : '') + x.reps + (x.fail ? 'F' : '')).join(', ')}</div></div>${ic('history', 'class="inl muted"')}</div>`).join('')}</div>`;
   };
 
+  // Everything sent to the AI gets "Always tell the AI" (Settings) and this request's extra details.
   function bridgePrompt(v) {
+    const p = bridgePromptBase(v), x = [S.ai.notes, U.sheet?.extra].map(t => (t || '').trim()).filter(Boolean).join('\n');
+    return x ? p + '\n\nImportant details from me (follow these):\n' + x : p;
+  }
+  const extraBox = s => `<label class="fl" data-k="ai-extra"><span>Add details for the AI <span class="muted">(optional)</span></span><textarea class="f small" rows="2" data-in="bextra" placeholder="e.g. Monday and Wednesday don't work, I have night school">${esc(s.extra || '')}</textarea>${S.ai.notes ? `<span class="tiny muted">Also sends your "Always tell the AI" note from Settings.</span>` : ''}</label>`;
+  function bridgePromptBase(v) {
     const own = EQUIPMENT.filter(e => S.equipment[e.id] === 'own').map(e => e.name).join(', ');
     const me = `I'm a ${S.profile.age}-year-old male, ${S.profile.level}, ${S.profile.weightLb} lb, ${ftIn(S.profile.heightIn)}, training at home with: ${own}.`;
     const weekText = (week, days) => week.map((d, i) => d.length ? `${DAYS[i]} (${days[i].groups.join('+') || 'daily min'}): ${d.map(x => `${exName(x.ex)} ${x.sets}x${schemeOf(x).lo}-${schemeOf(x).hi}`).join('; ')}` : `${DAYS[i]}: rest`).join('\n');
@@ -90,7 +108,8 @@
     if (v === 'goal') return `Suggest daily calorie and macro targets. Me: ${S.profile.age}, male, ${ftIn(S.profile.heightIn)}, ${S.profile.weightLb} lb, activity ${S.profile.activity}. Goal ${S.goal.rate}%/week. Last 4 weeks weight: ${S.weights.slice(-28).map(w => w.lb).join(', ')}.\nReturn ONLY JSON: {"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"reason":"string"}`;
     if (v === 'eqphoto') return `Identify all fitness equipment visible in this photo. Match against this catalog:\n${EQUIPMENT.map(e => e.name).join(', ')}\nReturn ONLY valid JSON: { "matches": ["equipment_name", ...] }\n\n(Attach the photo when you paste this.)`;
     if (v === 'eqlink') return `Read this product page and tell me what fitness equipment it is. Match it to one of: ${EQUIPMENT.map(e => e.name).join(', ')}.\nLink: <paste link>\nReturn ONLY JSON: {"name":"string","match":"string or null","price":"string or null"}`;
-    if (v === 'food') return `Analyze this food photo. Estimate portions and ingredients. Return ONLY valid JSON:\n{"foods":[{"name":"string","grams":number,"confidence":number}],"total_calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}\n\n(Attach the photo when you paste this.)`;
+    if (v === 'food') return `Analyze this food photo. Estimate each food's weight in grams and its macros. Return ONLY valid JSON:\n{"foods":[{"name":"string","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}],"total_calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}\n\n(Attach the photo when you paste this.)`;
+    if (v === 'foodai') { const s = U.sheet || {}; return `Find the nutrition facts for this food${s.code ? ` (barcode ${s.code}, UPC/EAN)` : ''}${s.name ? `: ${s.name}` : ''}. Use the product's label if you know it, otherwise a close typical match, and say which.\nGive values for ONE serving and the serving's weight in grams.\nReturn ONLY valid JSON: {"name":"string","brand":"string or null","serving":"string, e.g. 1 bar","serving_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"source":"label | typical estimate","confidence":number}`; }
     return '';
   }
 
@@ -167,6 +186,13 @@
   A.photoAI = () => { U.sheet = { kind: 'bridge', title: 'Plate photo', v: 'food' }; render(); };
   A.pickFood = d => { const r = !!d.r; const x = r ? recipesById()[d.id] : foodsById()[d.id]; U.sheet = { kind: 'food', title: x.name, id: d.id, r, qty: 1, meal: U.meal }; render(); };
   A.qty = d => { U.sheet.qty = Math.max(0.25, r1(U.sheet.qty + +d.v)); render(); };
+  const sheetGps = () => { const s = U.sheet; return gramsPer(s.r ? recipesById()[s.id] : foodsById()[s.id], s.r); };
+  A.aiOpen = () => { U.aiOpen = !U.aiOpen; render(); };
+  const aiReadyTxt = () => S.ai.endpoint && S.ai.model ? 'Direct: ' + esc(S.ai.model) : 'Copy and paste';
+  A.qtyMode = d => { U.sheet.gm = d.v === 'g'; render(); };
+  A.qtyG = d => { const g = sheetGps(); U.sheet.qty = Math.max(1, Math.round(U.sheet.qty * g) + +d.v) / g; render(); };
+  // AI macros for a food by barcode and/or name (scan miss, or no match in search).
+  A.foodAI = d => { const name = d.src === 'scan' ? ($('#scanName')?.value || '').trim() : U.q; U.sheet = { kind: 'bridge', title: 'Macros from AI', v: 'foodai', code: d.src === 'scan' ? U.scanCode : '', name }; render(); };
   A.sheetMeal = d => { U.sheet.meal = d.v; render(); };
   A.logFood = () => { const s = U.sheet; S.log.push({ id: 'l' + Date.now(), date: U.foodDate, meal: s.meal, [s.r ? 'recipeId' : 'foodId']: s.id, qty: s.qty }); S.recent = [s.id, ...S.recent.filter(x => x !== s.id)].slice(0, 25); U.sheet = null; U.q = ''; save(); toast('Logged.'); };
   A.editEntry = d => { const e = S.log.find(x => x.id === d.id); if (!e) return; U.sheet = { kind: 'food', mode: 'edit', title: entryName(e), entry: e.id, id: e.recipeId || e.foodId, r: !!e.recipeId, qty: e.qty, meal: e.meal }; render(); };
@@ -354,7 +380,7 @@
   A.setupDone = () => { S.profile.setupDone = true; buildPlan(); save(); render(); };
 
   // Workout logger
-  const newSet = (id, scheme) => { const sch = S.schemes[scheme] || S.schemes.build; const nx = S.next[id]; const bw = isBW(id); return { w: bw ? 0 : nx ? nx.w : (lastWeight(id) ?? ''), reps: nx ? nx.reps : sch.lo, fail: false, pain: false, done: false }; };
+  const newSet = (id, scheme) => { const sch = S.schemes[scheme] || S.schemes.build; const nx = S.next[id]; const bw = isBW(id); return { w: bw ? 0 : nx ? nx.w : (lastWeight(id) ?? startW(id, scheme) ?? ''), start: !bw && !nx && lastWeight(id) == null, reps: nx ? nx.reps : sch.lo, fail: false, pain: false, done: false }; };
   A.startWorkout = d => {
     const w = todaysWorkout()[+d.i];
     if (!w || !w.items.length) return;
@@ -434,7 +460,14 @@
   IN.rname = el => { U.draft.name = el.value; };
   IN.ringq = el => { U.draft.ing[+el.dataset.i].qty = +el.value; render(); };
   IN.radd = el => { if (!el.value) return; const f = foodsById()[el.value]; U.draft.ing.push({ foodId: el.value, qty: f.unit === 'g' ? 100 : 1 }); render(); };
-  IN.setw = el => { U.log.sets[U.log.idx][+el.dataset.i].w = el.value === '' ? '' : +el.value; };
+  // Changing the weight carries it to the sets you haven't done yet (drop to 80 -> the rest are 80).
+  IN.bextra = el => { U.sheet.extra = el.value; const o = $('#bridgeOut'); if (o) o.value = bridgePrompt(U.sheet.v); };
+  IN.qtyg = el => { const g = sheetGps(); if (g && +el.value > 0) U.sheet.qty = +el.value / g; const m = $('[data-k="qty-macros"]'); if (m) { const s = U.sheet, x = s.r ? recipesById()[s.id] : foodsById()[s.id]; const t = s.r ? L.scale(L.recipePerContainer(x, foodsById()), s.qty) : L.scale(x, s.qty); m.innerHTML = `<div><b>${r0(t.cal)}</b> kcal</div><div>P${r0(t.p)} C${r0(t.c)} F${r0(t.f)}</div>`; } };
+  IN.setw = el => {
+    const i = +el.dataset.i, w = el.value === '' ? '' : +el.value, sets = U.log.sets[U.log.idx];
+    sets[i].w = w; sets[i].start = false;
+    sets.forEach((s, j) => { if (j > i && !s.done) { s.w = w; s.start = false; const inp = document.querySelector(`[data-in="setw"][data-i="${j}"]`); if (inp) inp.value = w; } });
+  };
   IN.setr = el => { U.log.sets[U.log.idx][+el.dataset.i].reps = +el.value; };
   IN.tgt = el => { S.targets[el.dataset.m][el.dataset.k2] = +el.value; buildPlan(); };
   IN.wishlink = el => { S.wishLinks[el.dataset.k2] = el.value; save(); };
@@ -451,7 +484,7 @@
     const fn = A[el.dataset.act];
     if (fn) fn(el.dataset, el, ev);
   });
-  const LIVE = ['ingq', 'foodq', 'libq', 'swapq', 'planq', 'rate', 'setw', 'setr', 'qty', 'rname', 'wizName'];
+  const LIVE = ['ingq', 'foodq', 'libq', 'swapq', 'planq', 'rate', 'setw', 'setr', 'qty', 'qtyg', 'bextra', 'rname', 'wizName'];
   const onIn = ev => { const el = ev.target.closest('[data-in]'); if (!el) return; const fn = IN[el.dataset.in]; if (fn) fn(el, ev); };
   phone.addEventListener('input', ev => { if (LIVE.includes(ev.target.dataset?.in)) onIn(ev); });
   phone.addEventListener('change', ev => { const k = ev.target.dataset?.in; if (!LIVE.includes(k)) onIn(ev); if (k === 'qty') render(); });

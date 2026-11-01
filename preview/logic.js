@@ -111,36 +111,71 @@
 
   // Next-session recommendation from what was actually done.
   // target: {sets, lo, hi, w}  actual: [{w, reps, fail, pain}]  step: smallest weight jump for this gear.
+  // The working weight is the weight of the last set: if you dropped weight mid-exercise, that's
+  // the weight you build from next time (jake: told 5 at 100, got 2, dropped to 80 for 4 -> 80, aim 5).
   L.recommend = (target, actual, step, opts = {}) => {
     const done = actual.filter(s => s.reps > 0);
     if (!done.length) return { kind: 'none', text: 'No sets logged.' };
-    if (done.some(s => s.pain)) return { kind: 'pain', w: target.w, reps: target.lo, text: 'Pain logged. Skip this one next time and pick a swap. If it keeps hurting, get it looked at.' };
+    const W = +done[done.length - 1].w || 0;
+    const tw = W > 0 ? W : (+target.w || 0);
+    if (done.some(s => s.pain)) return { kind: 'pain', w: tw, reps: target.lo, text: 'Pain logged. Skip this one next time and pick a swap. If it keeps hurting, get it looked at.' };
+    const work = done.filter(s => (+s.w || 0) === W);
+    const dropped = target.w > 0 && W > 0 && W < target.w;
     const maxCap = opts.capPct ?? 10;
-    const best = Math.max(...done.map(s => L.epley(s.w, s.reps)));
-    const top = done.reduce((a, s) => (L.epley(s.w, s.reps) > L.epley(a.w, a.reps) ? s : a));
-    const hitAll = done.length >= target.sets && done.every(s => s.reps >= target.lo);
-    const hitTop = done.length >= target.sets && done.every(s => s.reps >= target.hi);
-    const missed = done.filter(s => s.reps < target.lo).length;
+    const best = Math.max(...work.map(s => L.epley(s.w, s.reps)));
+    const top = work.reduce((a, s) => (L.epley(s.w, s.reps) > L.epley(a.w, a.reps) ? s : a));
+    const hitAll = work.length >= target.sets && work.every(s => s.reps >= target.lo);
+    const hitTop = work.length >= target.sets && work.every(s => s.reps >= target.hi);
+    const missed = work.filter(s => s.reps < target.lo).length;
     // Way past the range on any set (e.g. 11 reps when 5 was the target): the weight is too light.
     if (top.reps >= target.hi + 3 && step > 0) {
       const fit = L.weightForReps(best, target.lo);
-      const cap = target.w * (1 + maxCap / 100);
+      const cap = tw * (1 + maxCap / 100);
       let w = L.roundDown(Math.min(fit, cap), step);
-      if (w <= target.w) w = target.w + step;
+      if (w <= tw) w = tw + step;
       return { kind: 'jump', w, reps: target.lo, e1rm: Math.round(best),
         text: `You did ${top.reps} reps at ${top.w} lb${top.fail ? ' to failure' : ''}, so your ${target.lo}-rep weight is about ${Math.round(L.roundNear(L.weightForReps(best, target.lo), step))} lb. Go to ${w} lb x ${target.lo}${w < fit - step ? ' (capped at +' + maxCap + '% per step)' : ''}.` };
     }
-    if (hitTop && step > 0) return { kind: 'up', w: target.w + step, reps: target.lo, e1rm: Math.round(best), text: `All sets hit the top of the range. Add ${step} lb: ${target.w + step} lb x ${target.lo}.` };
-    if (hitTop) return { kind: 'reps', w: target.w, reps: target.hi + 1, text: `All sets hit ${target.hi}. Go for ${target.hi + 1} reps, or add load.` };
+    if (hitTop && step > 0) return { kind: 'up', w: tw + step, reps: target.lo, e1rm: Math.round(best), text: `All sets hit the top of the range. Add ${step} lb: ${tw + step} lb x ${target.lo}.` };
+    if (hitTop) return { kind: 'reps', w: tw, reps: target.hi + 1, text: `All sets hit ${target.hi}. Go for ${target.hi + 1} reps, or add load.` };
     if (hitAll) {
-      const minReps = Math.min(...done.map(s => s.reps));
-      return { kind: 'reps', w: target.w, reps: Math.min(target.hi, minReps + 1), e1rm: Math.round(best), text: `Target hit. Same weight, aim for ${Math.min(target.hi, minReps + 1)} reps per set.` };
+      const minReps = Math.min(...work.map(s => s.reps));
+      return { kind: 'reps', w: tw, reps: Math.min(target.hi, minReps + 1), e1rm: Math.round(best), text: `Target hit. Same weight, aim for ${Math.min(target.hi, minReps + 1)} reps per set.` };
     }
-    if (missed >= 2 && opts.missedLastTime && step > 0) {
-      const w = L.roundDown(target.w * 0.9, step);
+    if (!dropped && missed >= 2 && opts.missedLastTime && step > 0) {
+      const w = L.roundDown(tw * 0.9, step);
       return { kind: 'down', w, reps: target.lo, text: `Missed the range two sessions in a row. Drop to ${w} lb and build back up.` };
     }
-    return { kind: 'hold', w: target.w, reps: target.lo, e1rm: Math.round(best), text: `Stay at ${target.w} lb and try to hit ${target.lo} on every set.` };
+    const minW = Math.min(...work.map(s => s.reps));
+    const unit = W > 0 ? ` at ${tw} lb` : '';
+    if (dropped) return { kind: 'hold', w: tw, reps: target.lo, e1rm: Math.round(best), text: `You dropped to ${tw} lb and got ${minW}. Stay at ${tw} lb and work up to ${target.lo} reps on every set, then move up.` };
+    return { kind: 'hold', w: tw, reps: target.lo, e1rm: Math.round(best), text: `Best this time was ${minW} reps${unit}. Stay${unit} and work up to ${target.lo} on every set.` };
+  };
+
+  // Safe first weight for a lift you've never logged. Deliberately light: a fraction of body weight
+  // by lift type and gear, scaled by fitness level, sex and rep range. Dumbbells/kettlebells are per hand.
+  // Returns null for gear with no set weight (bands, sleds, medicine balls...).
+  L.START_RATIO = {
+    // [compound, isolation] fractions of body weight for a beginner man at ~10 reps
+    bar: { legs: [0.35, 0.15], hinge: [0.45, 0.25], chest: [0.3, 0.12], shoulders: [0.2, 0.08], back: [0.3, 0.15], arms: [0.15, 0.12], core: [0.1, 0.05] },
+    db: { legs: [0.08, 0.05], hinge: [0.1, 0.06], chest: [0.1, 0.05], shoulders: [0.07, 0.03], back: [0.1, 0.05], arms: [0.06, 0.05], core: [0.05, 0.04] },
+    machine: { legs: [0.4, 0.2], hinge: [0.35, 0.2], chest: [0.25, 0.12], shoulders: [0.15, 0.06], back: [0.3, 0.15], arms: [0.15, 0.1], core: [0.15, 0.1] },
+  };
+  const START_GEAR = { barbell: 'bar', rack: 'bar', smith: 'bar', 'ez-curl-bar': 'bar', trapbar: 'bar', dumbbell: 'db', kettlebell: 'db', plates: 'db', 'cable-tower': 'machine', 'smith-cable': 'machine', 'hack-legpress': 'machine', legext: 'machine' };
+  const START_AREA = { quadriceps: 'legs', glutes: 'legs', adductors: 'legs', abductors: 'legs', calves: 'legs', hamstrings: 'hinge', 'lower back': 'hinge', chest: 'chest', shoulders: 'shoulders', traps: 'back', lats: 'back', 'middle back': 'back', biceps: 'arms', triceps: 'arms', forearms: 'arms', abdominals: 'core' };
+  L.startWeight = (ex, profile = {}, scheme = 'build', step = 2.5) => {
+    const kind = ex && START_GEAR[ex.g];
+    if (!kind) return null;
+    const area = START_AREA[(ex.pm || [])[0]] || 'arms';
+    const r = L.START_RATIO[kind][area][ex.mech === 'compound' ? 0 : 1];
+    const bw = Math.min(300, Math.max(100, +profile.weightLb || 170));
+    const lvl = { beginner: 1, intermediate: 1.4, advanced: 1.8 }[profile.level] || 1;
+    const sex = profile.sex === 'female' ? 0.65 : 1;
+    const reps = { strength: 1.1, build: 1, endurance: 0.75 }[scheme] || 1;
+    let w = L.roundDown(bw * r * lvl * sex * reps, step);
+    const min = kind === 'bar' ? (ex.g === 'ez-curl-bar' ? 20 : ex.g === 'smith' ? 0 : 45) : step * 2;
+    // A bare bar is the floor for barbell lifts; light curls/raises still get the minimum dumbbell.
+    return Math.max(w, min || step);
   };
 
   // ---------- Weekly muscle balance ----------

@@ -16,7 +16,8 @@
     const per = q > 0 && n['energy-kcal_serving'] != null ? 'serving' : '100g';
     const v = k => +(n[k + '_' + per] ?? (per === '100g' ? n[k] : 0)) || 0;
     const name = [p.product_name, p.brands && p.brands.split(',')[0]].filter(Boolean).join(' · ') || 'Barcode ' + code;
-    return { id: 'off' + code, name, src: 'OpenFoodFacts', serv: per === 'serving' ? q : 100, unit: per === 'serving' ? (p.serving_size || 'g').replace(/^[\d.,\s]+/, '').trim() || 'g' : 'g', cal: r1(v('energy-kcal')), p: r1(v('proteins')), c: r1(v('carbohydrates')), f: r1(v('fat')), barcode: code };
+    // serving_quantity is in grams (ml for drinks), so portions can always be entered in grams.
+    return { id: 'off' + code, name, src: 'OpenFoodFacts', serv: per === 'serving' ? q : 100, unit: 'g', servName: per === 'serving' && p.serving_size ? p.serving_size : '', cal: r1(v('energy-kcal')), p: r1(v('proteins')), c: r1(v('carbohydrates')), f: r1(v('fat')), barcode: code };
   }
   A.scanReal = async () => {
     const r = await native('scan');
@@ -32,6 +33,44 @@
     }
     if (!f) { U.scanCode = code; U.sheet = { kind: 'scan', title: 'Not found', code }; return render(); }
     U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; render();
+  };
+
+  // ----- Online food search (Open Food Facts), right inside the food log -----
+  async function getJson(url) {
+    if (REAL) { const r = await native('http', { url }); if (r.error) throw new Error(r.error); if (r.status < 200 || r.status > 299) throw new Error('HTTP ' + r.status); return JSON.parse(r.body || 'null'); }
+    const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json();
+  }
+  A.offSearch = async () => {
+    const q = (U.q || '').trim(); if (!q) return;
+    U.off = { q, busy: true, items: [] }; render();
+    const fields = 'code,product_name,brands,nutriments,serving_size,serving_quantity';
+    let items = [], err = '';
+    try {
+      const j = await getJson(`https://search.openfoodfacts.org/search?q=${encodeURIComponent(q)}&page_size=20&fields=${fields}`);
+      items = (j && j.hits) || [];
+    } catch (e) { err = e.message; }
+    if (!items.length) {
+      try {
+        const j = await getJson(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&json=1&page_size=20&fields=${fields}`);
+        items = (j && j.products) || []; err = '';
+      } catch (e) { err = err || e.message; }
+    }
+    items = items.filter(p => p.code && p.product_name && p.nutriments && (p.nutriments['energy-kcal_100g'] != null || p.nutriments['energy-kcal_serving'] != null)).map(p => offFood(p.code, p));
+    if (U.off?.q !== q) return;
+    U.off = { q, busy: false, items, err }; render();
+  };
+  A.offPick = d => {
+    const f = U.off?.items?.[+d.i]; if (!f) return;
+    if (!S.foods.some(x => x.id === f.id)) { S.foods.push(f); save(); }
+    if (topFull()?.kind === 'ingPick') return A.ingAdd({ id: f.id });
+    U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; render();
+  };
+  // Results card shown under "No match in your foods" (and below your own matches).
+  window.offBlock = () => {
+    const o = U.off && U.off.q === (U.q || '').trim() ? U.off : null;
+    const btns = `<div class="row wrap"><button class="btn sm" data-act="offSearch" ${o?.busy ? 'disabled' : ''}>${ic('search')}${o?.busy ? 'Searching…' : 'Search online'}</button><button class="btn sm soft" data-act="foodAI" data-src="search">${ic('spark')}Ask AI for macros</button><button class="btn sm ghost" data-act="newFood">${ic('plus')}By hand</button></div>`;
+    if (!o || o.busy) return btns;
+    return `${o.items.length ? `<div class="tiny muted caps">Open Food Facts</div><div class="list">${o.items.map((f, i) => `<div class="li" data-act="offPick" data-i="${i}"><div class="grow"><div class="small">${esc(f.name)}</div><div class="tiny muted num">${r0(f.cal)} kcal · P${r0(f.p)} C${r0(f.c)} F${r0(f.f)} per ${f.servName ? esc(f.servName) : r0(f.serv) + ' g'}</div></div></div>`).join('')}</div>` : `<div class="small muted">${o.err ? 'Online search failed: ' + esc(o.err) : 'Nothing online for "' + esc(o.q) + '".'} Try fewer words, or ask the AI.</div>`}${btns}`;
   };
 
   // ----- Health Connect -----
@@ -127,6 +166,7 @@
     const needsImg = s.v === 'food' || s.v === 'eqphoto';
     return `<div class="small">Sends to <b>${esc(S.ai.model)}</b>${window.HFDev.hasSecret('ai_key') ? '' : ' (no API key saved)'}.</div>
       ${needsImg ? `<label class="btn ghost sm" style="cursor:pointer;align-self:flex-start">${ic('camera')}${s.img ? 'Change photo' : 'Add a photo'}<input type="file" accept="image/*" data-in="aiImg" hidden></label>${s.img ? `<img src="${s.img}" alt="" style="max-height:160px;border-radius:8px;align-self:flex-start">` : ''}` : ''}
+      ${extraBox(s)}
       <button class="btn" data-act="aiSend" ${s.busy ? 'disabled' : ''}>${ic('spark')}${s.busy ? 'Asking…' : s.answer ? 'Ask again' : 'Ask AI'}</button>
       ${s.err ? `<div class="small" style="color:var(--a-alert)">${esc(s.err)}</div>` : ''}
       ${s.answer ? aiAnswerView(s) : ''}
@@ -140,7 +180,8 @@
     const j = parseJson(s.answer); if (!j) return '';
     if (j.suggestions) return `<ul class="blist">${j.suggestions.map(x => `<li><span class="bn"><b>${esc(x.title)}</b>: ${esc(x.change || '')} <span class="muted">${esc(x.why || '')}</span></span></li>`).join('')}</ul>`;
     if (j.exercises) return `<b class="small">${esc(j.routine_name || 'Workout')}</b><ul class="blist">${j.exercises.map(x => `<li><span class="bn">${esc(x.name)}${aiEx(x.name) ? '' : ' <span class="muted">(not in your list)</span>'}</span><span class="bt num">${x.sets} × ${esc(String(x.reps))}</span></li>`).join('')}</ul>`;
-    if (j.foods) return `<ul class="blist">${j.foods.map(x => `<li><span class="bn">${esc(x.name)}</span><span class="bt num">${r0(x.grams)} g</span></li>`).join('')}</ul><div class="small num">${r0(j.total_calories)} kcal · P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div>`;
+    if (j.serving_g != null) return `<div class="small"><b>${esc(j.name || '')}</b>${j.brand ? ' · ' + esc(j.brand) : ''}</div><div class="small num">${esc(j.serving || '1 serving')} (${r0(j.serving_g)} g): ${r0(j.calories)} kcal · P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div><div class="tiny muted">${esc(j.source || '')}</div>`;
+    if (j.foods) return `<ul class="blist">${j.foods.map(x => `<li><span class="bn">${esc(x.name)}</span><span class="bt num">${r0(x.grams)} g${x.calories != null ? ' · ' + r0(x.calories) + ' kcal' : ''}</span></li>`).join('')}</ul><div class="small num">${r0(j.total_calories)} kcal · P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div>`;
     if (j.calories) return `<div class="small num">${r0(j.calories)} kcal · P${r0(j.protein_g)} C${r0(j.carbs_g)} F${r0(j.fat_g)}</div><div class="tiny muted">${esc(j.reason || '')}</div>`;
     if (j.matches) return `<div class="small">Found: ${j.matches.map(esc).join(', ') || 'nothing from your list'}</div>`;
     if (j.why) return `<div class="small">${esc(j.why)}</div>`;
@@ -149,12 +190,23 @@
   const aiEx = name => { const n = String(name).toLowerCase().replace(/[^a-z0-9 ]/g, ''); return EX.find(e => e.n.toLowerCase().replace(/[^a-z0-9 ]/g, '') === n) || EX.find(e => e.n.toLowerCase().includes(n) || n.includes(e.n.toLowerCase())); };
   const applyRecipe = A.bridgeApply;
   A.bridgeApply = d => {
-    if (!REAL || d.v === 'recipe') return applyRecipe(d);
+    if (d.v === 'recipe' || (!REAL && d.v !== 'foodai')) return applyRecipe(d);
     const j = parseJson($('#bridgeIn').value);
     if (!j) return toast('That answer isn\'t valid JSON.');
     if (d.v === 'food') {
-      const f = { id: 'c' + Date.now(), name: 'Plate: ' + (j.foods || []).map(x => x.name).slice(0, 3).join(', '), src: 'Custom', serv: 1, unit: 'plate', cal: r0(j.total_calories), p: r0(j.protein_g), c: r0(j.carbs_g), f: r0(j.fat_g) };
-      S.foods.push(f); S.log.push({ id: 'l' + Date.now(), date: U.foodDate, meal: U.meal, foodId: f.id, qty: 1 }); toast('Logged to ' + U.meal.toLowerCase() + '.');
+      // Each food on the plate becomes its own entry, in grams, so every portion can be adjusted.
+      const t = Date.now(), parts = (j.foods || []).filter(x => +x.grams > 0 && x.calories != null);
+      const add = (k, name, grams, m) => { const f = { id: 'c' + t + '_' + k, name, src: 'AI photo', serv: Math.round(grams), unit: 'g', cal: r1(+m.cal || 0), p: r1(+m.p || 0), c: r1(+m.c || 0), f: r1(+m.f || 0) }; S.foods.push(f); S.log.push({ id: 'l' + t + '_' + k, date: U.foodDate, meal: U.meal, foodId: f.id, qty: 1 }); };
+      if (parts.length) parts.forEach((x, k) => add(k, x.name, +x.grams, { cal: x.calories, p: x.protein_g, c: x.carbs_g, f: x.fat_g }));
+      else add(0, 'Plate: ' + (j.foods || []).map(x => x.name).slice(0, 3).join(', '), (j.foods || []).reduce((a, x) => a + (+x.grams || 0), 0) || 300, { cal: j.total_calories, p: j.protein_g, c: j.carbs_g, f: j.fat_g });
+      toast(`Logged ${parts.length || 1} item${parts.length > 1 ? 's' : ''} to ${U.meal.toLowerCase()}. Tap any to change the grams.`);
+    } else if (d.v === 'foodai') {
+      const g = +j.serving_g || 100, s = U.sheet;
+      const f = { id: 'c' + Date.now(), name: [j.name || s.name || 'Food', j.brand].filter(Boolean).join(' · '), src: 'AI' + (j.source ? ' (' + j.source + ')' : ''), serv: g, unit: 'g', servName: j.serving || '', cal: r1(+j.calories || 0), p: r1(+j.protein_g || 0), c: r1(+j.carbs_g || 0), f: r1(+j.fat_g || 0) };
+      if (s.code) { f.barcode = s.code; U.scanCode = null; }
+      S.foods.push(f); save();
+      if (topFull()?.kind === 'ingPick') { U.sheet = null; return A.ingAdd({ id: f.id }); }
+      U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; return render();
     } else if (d.v === 'goal') {
       Object.assign(S.goal, { method: 'manual', cal: r0(j.calories), p: r0(j.protein_g), c: r0(j.carbs_g), f: r0(j.fat_g) }); toast('Targets updated.');
     } else if (d.v === 'schemes') {

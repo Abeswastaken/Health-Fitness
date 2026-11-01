@@ -25,4 +25,17 @@ const dq=L.dailyQuests('2026-11-01');assert.equal(dq.length,3);assert.deepEqual(
 assert.equal(L.bossFor('2026-11-01',5).hp,450);assert.equal(L.bossFor('2026-11-01',5).id,L.bossFor('2026-11-01',9).id);
 assert.equal(L.bossDamage({sets:10,volume:2500,mornings:1,foodDays:1,macroDays:0,weighIns:0}),115);
 let drops=0;for(let i=0;i<1000;i++)if(L.loot('s'+i))drops++;assert(drops>200&&drops<400,drops);
+// jake's example: told 5 at 100, got 2, dropped to 80 and got 4 -> stay at 80, aim for 5
+r=L.recommend({sets:3,lo:5,hi:6,w:100},[{w:100,reps:2},{w:80,reps:4},{w:80,reps:4}],2.5);
+console.log(r.text); assert.equal(r.kind,'hold'); assert.equal(r.w,80); assert.equal(r.reps,5);
+// at 80 for all three sets and hit the top -> add from 80, not from the old target
+r=L.recommend({sets:3,lo:5,hi:6,w:100},[{w:80,reps:6},{w:80,reps:6},{w:80,reps:6}],2.5); assert.equal(r.w,82.5);
+const exs=require('./exercises.json');const ebi=Object.fromEntries(exs.map(e=>[e.id,e]));
+const me={sex:'male',weightLb:195,level:'beginner'};
+const sw=id=>L.startWeight(ebi[id],me,'build');
+const lat=exs.find(e=>e.g==='dumbbell'&&/Side Lateral Raise/.test(e.n));
+console.log('start',lat&&L.startWeight(lat,me,'endurance'),sw('Barbell_Squat'),sw('Barbell_Bench_Press_-_Medium_Grip'),sw('Alternate_Hammer_Curl'),sw('Barbell_Deadlift'));
+assert(lat&&L.startWeight(lat,me,'endurance')<=7.5); assert.equal(sw('Barbell_Squat'),67.5); assert(sw('Alternate_Hammer_Curl')<=12.5);
+assert(L.startWeight(ebi['Barbell_Squat'],{...me,level:'advanced'})>sw('Barbell_Squat'));
+assert.equal(L.startWeight({g:'bands',pm:['chest']},me),null);
 console.log('ok');
