@@ -841,7 +841,7 @@
     const push = L.PUSH.reduce((a, m) => a + planned[m], 0), pull = L.PULL.reduce((a, m) => a + planned[m], 0);
     return `<div class="card" data-k="balance-coach"><h2>${ic('spark', 'class="inl"')} Coach suggestions</h2><div class="small muted">Push ${r0(push)} vs pull ${r0(pull)} sets planned. Tap a fix to change your week; it rebuilds nothing else.</div>
       ${coachList(S.planWeek || [], S.days, 'week')}
-      <button class="btn soft sm" data-act="bridge" data-v="plan" style="align-self:flex-start">${ic('spark')}Ask AI coach for more</button></div>
+      <button class="btn soft sm" data-act="bridge" data-v="plan" style="align-self:flex-start">${ic('spark')}Ask AI coach for more</button>${planReopenBtn('plan')}</div>
       <div class="card" data-k="balance-bars"><div class="row tiny muted"><span class="grow">Sets per week \u00b7 helper muscle = \u00bd set</span><span><span class="dot" style="background:var(--a-accent)"></span> done</span><span><span class="dot" style="background:color-mix(in srgb,var(--a-accent) 35%,transparent)"></span> planned</span></div>
       ${Object.entries(L.GROUPS).map(([g, ms]) => `<div class="tiny muted" style="margin-top:6px">${g}</div>${ms.filter(m => L.TARGETED.includes(m) || planned[m] > 0).map(m => { const t = S.targets[m], st = L.balanceStatus(planned[m], t); return `<div class="row small tap" data-act="muscleTarget" data-m="${m}"><button class="iconbtn sm star ${S.focus.includes(m) ? 'on' : ''}" data-act="focus" data-m="${m}" aria-label="Focus ${m}">${ic('star')}</button><span style="width:80px">${L.cap(m)}</span>
         <div class="bar grow" style="height:14px"><span style="position:absolute;left:${t.min / mx * 100}%;width:${(t.max - t.min) / mx * 100}%;top:0;bottom:0;background:color-mix(in srgb,var(--a-good) 16%,transparent)"></span><i style="position:absolute;width:${Math.min(100, planned[m] / mx * 100)}%;background:color-mix(in srgb,var(--a-accent) 35%,transparent)"></i><i style="position:absolute;width:${Math.min(100, done[m] / mx * 100)}%;background:var(--a-accent)"></i></div>
@@ -1302,7 +1302,7 @@
     if (w.step === 'review') return `${bar('Coach review', '', 'wizBack')}<div class="scroll">
       <div class="steps3"><span>1 Questions</span><span>2 Draft and edit</span><span class="on">3 Coach review</span></div>
       <div class="card"><h2>${ic('spark', 'class="inl"')} Round ${w.round}</h2><div class="small muted">${check.length ? `${check.length} thing${check.length === 1 ? '' : 's'} to look at. Apply what you like, edit by hand, then review again.` : 'This week is well rounded. Save it when you\'re happy.'}</div>${coachList(w.week, w.days, 'draft')}
-        <button class="btn soft sm" data-act="bridge" data-v="draft" style="align-self:flex-start">${ic('spark')}Ask AI coach too</button></div>
+        <button class="btn soft sm" data-act="bridge" data-v="draft" style="align-self:flex-start">${ic('spark')}Ask AI coach too</button>${planReopenBtn('draft')}</div>
       <div class="row"><button class="btn ghost block" data-act="wizBack">Back to editing</button><button class="btn block" data-act="wizSave">Save plan</button></div></div>`;
     return `${bar(w.mode === 'coach' ? 'Coach-assisted plan' : 'Create my own', '', 'wizClose')}<div class="scroll">
       ${w.mode === 'coach' ? `<div class="steps3"><span>1 Questions</span><span class="on">2 Draft and edit</span><span>3 Coach review</span></div><div class="card tight coachnote"><div class="small">${ic('spark', 'class="inl"')} ${esc(w.note || '')}</div></div>` : `<div class="card tight"><div class="small muted">Turn on your training days, pick muscles, then add exercises. "Fill" builds a day from its muscles if you want a start.</div></div>`}
@@ -1310,7 +1310,7 @@
       ${w.days.map((d, i) => `<div class="card day tight"><div class="row"><h2 class="grow">${DAYS[i]}</h2><span class="small muted num">${d.off ? 'Rest' : w.week[i].reduce((a, x) => a + x.sets, 0) + ' sets'}</span>${sw(!d.off, 'wizDay', `data-i="${i}" aria-label="Train on ${DAYS[i]}"`)}</div>
         ${d.off ? (w.week[i].length ? bullets(w.week[i]) : '') : `<div class="chips">${GROUPS.map(g => `<button class="chip sm ${d.groups.includes(g) ? 'on' : ''}" data-act="wizGroup" data-i="${i}" data-v="${g}">${g}</button>`).join('')}</div>${bullets(w.week[i])}<button class="btn sm ghost" data-act="wizEditDay" data-i="${i}" style="align-self:flex-start">${ic('edit')}${w.week[i].length ? 'Edit exercises' : 'Add exercises'}</button>`}</div>`).join('')}
       <div class="small muted num">${w.days.filter(d => !d.off).length} training days \u00b7 ${total} sets a week</div>
-      <button class="btn soft" data-act="bridge" data-v="draft" data-k="ask-ai-coach">${ic('spark')}Ask AI coach to improve this week</button>
+      <button class="btn soft" data-act="bridge" data-v="draft" data-k="ask-ai-coach">${ic('spark')}Ask AI coach to improve this week</button>${planReopenBtn('draft')}
       <div class="row">${w.mode === 'coach' ? `<button class="btn block" data-act="wizReview">${ic('spark')}Coach review${w.round ? ' (round ' + (w.round + 1) + ')' : ''}</button>` : `<button class="btn ghost" data-act="wizReview">Coach check</button><button class="btn block" data-act="wizSave">Save plan</button>`}</div></div>`;
   };
 
@@ -1397,7 +1397,10 @@
   // Everything sent to the AI gets "Always tell the AI" (Settings) and this request's extra details.
   function bridgePrompt(v) {
     const p = bridgePromptBase(v), x = [S.ai.notes, U.sheet?.extra].map(t => (t || '').trim()).filter(Boolean).join('\n');
-    return x ? p + '\n\nImportant details from me (follow these):\n' + x : p;
+    if (!x) return p;
+    const add = '\n\nImportant details from me (these override anything above, follow them):\n' + x + '\n\n';
+    const k = ['\n\nSuggest 3-8', '\n\nReturn ONLY', 'Return ONLY'].map(m => p.lastIndexOf(m)).find(i => i >= 0);
+    return k >= 0 ? p.slice(0, k) + add + p.slice(k).replace(/^\n+/, '') : p + add;
   }
   const extraBox = s => `<label class="fl" data-k="ai-extra"><span>Add details for the AI <span class="muted">(optional)</span></span><textarea class="f small" rows="2" data-in="bextra" placeholder="e.g. Monday and Wednesday don't work, I have night school">${esc(s.extra || '')}</textarea>${S.ai.notes ? `<span class="tiny muted">Also sends your "Always tell the AI" note from Settings.</span>` : ''}</label>`;
   function bridgePromptBase(v) {
@@ -1410,7 +1413,7 @@
       const items = L.planCheck({ week, days, exById: EXB, targets: S.targets, focus: new Set(S.focus) }).map(x => `- ${x.title}: ${x.detail}`).join('\n');
       const planned = L.setsByMuscle(week.flat(), EXB), gear = ownedGear();
       const allowed = EX.filter(e => gear.has(e.g) && e.cat === 'strength').map(e => e.n);
-      return `You are my strength coach. ${me}\nGoal: ${S.goal.rate}% body weight per week. Focus muscles: ${S.focus.join(', ') || 'none'}. I struggle with legs and squats, so I keep a daily leg minimum.\n\n${v === 'draft' ? 'My draft week' : 'My week'} (day: exercise sets x reps):\n${weekText(week, days)}\n\nSets per muscle per week: ${Object.entries(planned).filter(([, n]) => n).map(([m, n]) => `${m} ${n}`).join(', ')}\n\nMy app's automatic checks found:\n${items || '- nothing'}\n\nSuggest 3-8 specific changes to this week. My app applies them automatically, so each change must be one of these actions:\n- add: put "exercise" on "day" for "sets" sets\n- remove: take "exercise" off "day"\n- swap: replace "exercise" with "new_exercise" on "day" (or every day if day is null)\n- sets: set "exercise" on "day" to "sets" sets\n- rest_day: make "day" a rest day\n- move_day: move everything from "day" to "to_day" (which becomes a training day)\nDays are Sun, Mon, Tue, Wed, Thu, Fri, Sat. Exercise names must be copied exactly from this list (my equipment):\n${allowed.join('; ')}\n\nReturn ONLY JSON: {"summary":"string","changes":[{"title":"short string","why":"string","action":"add|remove|swap|sets|rest_day|move_day","day":"Mon","exercise":"string or null","new_exercise":"string or null","sets":number or null,"to_day":"string or null"}]}`;
+      return `You are my strength coach. ${me}\nGoal: ${S.goal.rate}% body weight per week. Focus muscles: ${S.focus.join(', ') || 'none'}. I struggle with legs and squats, so I keep a daily leg minimum.\n\n${v === 'draft' ? 'My draft week' : 'My week'} (day: exercise sets x reps):\n${weekText(week, days)}\n\nSets per muscle per week: ${Object.entries(planned).filter(([, n]) => n).map(([m, n]) => `${m} ${n}`).join(', ')}\n\nMy app's automatic checks found:\n${items || '- nothing'}\n\nSuggest 3-8 specific changes to this week. My app applies them automatically, so each change must be one of these actions:\n- add: put "exercise" on "day" for "sets" sets\n- remove: take "exercise" off "day"\n- swap: replace "exercise" with "new_exercise" on "day" (or every day if day is null)\n- sets: set "exercise" on "day" to "sets" sets\n- rest_day: make "day" a rest day\n- move_day: move everything from "day" to "to_day" (which becomes a training day)\nIf my details rule out a day, use move_day or rest_day for it. Answer with the JSON only, no other text, even if my details ask a question.\nDays are Sun, Mon, Tue, Wed, Thu, Fri, Sat. Exercise names must be copied exactly from this list (my equipment):\n${allowed.join('; ')}\n\nReturn ONLY JSON: {"summary":"string","changes":[{"title":"short string","why":"string","action":"add|remove|swap|sets|rest_day|move_day","day":"Mon","exercise":"string or null","new_exercise":"string or null","sets":number or null,"to_day":"string or null"}]}`;
     }
     if (v === 'coach') {
       const week = v === 'draft' ? U.wiz.week : S.planWeek || [], days = v === 'draft' ? U.wiz.days : S.days;
@@ -1994,12 +1997,14 @@
   const aiUrl = () => { const e = S.ai.endpoint.trim().replace(/\/+$/, ''); return /\/chat\/completions$/.test(e) ? e : e + '/chat/completions'; };
   async function aiCall(text, img) {
     const content = img ? [{ type: 'text', text }, { type: 'image_url', image_url: { url: img } }] : text;
-    const r = await native('http', { url: aiUrl(), method: 'POST', useAiKey: true, body: JSON.stringify({ model: S.ai.model, max_tokens: 2000, messages: [{ role: 'user', content }] }) });
+    const r = await native('http', { url: aiUrl(), method: 'POST', useAiKey: true, body: JSON.stringify({ model: S.ai.model, max_tokens: 4096, messages: [{ role: 'user', content }] }) });
     if (r.error) throw new Error(r.error);
     let j = null; try { j = JSON.parse(r.body); } catch (e) {}
     if (r.status < 200 || r.status > 299) throw new Error(`${r.status}: ${(j && (j.error?.message || j.message)) || (r.body || '').slice(0, 160)}`);
-    const msg = j?.choices?.[0]?.message?.content;
-    return Array.isArray(msg) ? msg.map(x => x.text || '').join('') : (msg || '');
+    const ch = j?.choices?.[0], msg = ch?.message?.content;
+    const out = Array.isArray(msg) ? msg.map(x => x.text || '').join('') : (msg || '');
+    if (!out.trim()) throw new Error(`The AI sent back an empty answer${ch?.finish_reason ? ' (' + ch.finish_reason + ')' : ''}. Tap Ask AI again; if it keeps happening, try another model.`);
+    return out;
   }
   A.aiTest = async () => {
     if (!aiReady()) return toast('Fill in the endpoint and model first.');
@@ -2012,7 +2017,7 @@
     const s = U.sheet; if (!s || s.busy) return;
     const needsImg = s.v === 'food' || s.v === 'eqphoto';
     if (needsImg && !s.img) return toast('Add a photo first.');
-    s.busy = true; s.err = ''; render();
+    s.busy = true; s.err = ''; s.noChanges = false; render();
     try { s.answer = await aiCall(bridgePrompt(s.v).replace(/\n\n\(Attach the photo when you paste this\.\)/, ''), needsImg ? s.img : null); }
     catch (e) { s.err = e.message; }
     s.busy = false; render();
@@ -2031,7 +2036,19 @@
       <button class="btn soft" data-act="bridgeApply" data-v="${s.v}">Apply</button>
       <details class="tiny"><summary>Prompt</summary><textarea class="f small" rows="6" readonly id="bridgeOut">${esc(bridgePrompt(s.v))}</textarea></details>`;
   };
-  const parseJson = t => { try { return JSON.parse((String(t).match(/\{[\s\S]*\}/) || [''])[0]); } catch (e) { return null; } };
+  const parseJson = t => {
+    t = String(t || '');
+    const tries = [], fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fence) tries.push(fence[1]);
+    tries.push((t.match(/\{[\s\S]*\}/) || [''])[0]);
+    // Every balanced {...} block, biggest first.
+    for (let i = t.indexOf('{'); i >= 0; i = t.indexOf('{', i + 1)) {
+      let d = 0, q = false;
+      for (let k = i; k < t.length; k++) { const c = t[k]; if (q) { if (c === '\\') k++; else if (c === '"') q = false; } else if (c === '"') q = true; else if (c === '{') d++; else if (c === '}' && --d === 0) { tries.push(t.slice(i, k + 1)); break; } }
+    }
+    for (const s of tries.sort((a, b) => b.length - a.length)) { try { const j = JSON.parse(s); if (j && typeof j === 'object') return j; } catch (e) {} }
+    return null;
+  };
   // Readable view of the answer before applying it.
   function aiAnswerView(s) {
     const j = parseJson(s.answer); if (!j) return '';
@@ -2113,16 +2130,30 @@
     else if (a === 'rest_day') { ref.days[i].off = true; ref.week[i] = ref.week[i].filter(x => x.daily); }
     else if (a === 'move_day') { const j = dayIx(c.to_day); ref.days[j] = { ...ref.days[i], off: false }; ref.week[j] = [...ref.week[j].filter(x => x.daily), ...ref.week[i].filter(x => !x.daily)]; ref.days[i] = { ...ref.days[i], off: true, groups: [] }; ref.week[i] = ref.week[i].filter(x => x.daily); }
   }
-  const planLoad = (s, j) => { s.changes = j.changes; s.summary = j.summary || ''; s.pick = j.changes.map(c => !planWhyNot(c, planRef(s.v))); };
+  // Finds the "changes" list even if the AI wrapped it in another object.
+  const changesIn = j => { if (!j || typeof j !== 'object') return null; if (Array.isArray(j.changes) && j.changes.length) return j; for (const v of Object.values(j)) { const r = v && typeof v === 'object' && !Array.isArray(v) ? changesIn(v) : null; if (r) return r; } return null; };
+  const planLoad = (s, j) => {
+    s.changes = j.changes; s.summary = j.summary || ''; s.pick = j.changes.map(c => !planWhyNot(c, planRef(s.v))); s.noChanges = false;
+    U.lastAi = U.lastAi || {}; U.lastAi[s.v] = { answer: s.answer || $('#bridgeIn')?.value || JSON.stringify(j), extra: s.extra || '' };
+  };
+  // "Show last AI answer": reopens the pick-list after the sheet was closed.
+  A.planReopen = d => {
+    const last = U.lastAi?.[d.v]; if (!last) return;
+    U.sheet = { kind: 'bridge', title: 'Last AI coach answer', v: d.v, answer: last.answer, extra: last.extra };
+    const j = changesIn(parseJson(last.answer)); if (j) planLoad(U.sheet, j);
+    render();
+  };
+  window.planReopenBtn = v => U.lastAi?.[v] ? `<button class="btn ghost sm" data-act="planReopen" data-v="${v}" style="align-self:flex-start">Show last AI answer</button>` : '';
   const bridgeSheet2 = SHEETS.bridge;
   SHEETS.bridge = s => {
-    if (!s.changes) return bridgeSheet2(s);
+    if (!s.changes) return (s.noChanges ? `<div class="small" style="color:var(--a-warn)">The AI answered, but not with changes the app can apply. Tap Ask AI again (your details are kept).</div>` : '') + bridgeSheet2(s) + (s.answer && changesIn(parseJson(s.answer)) ? `<button class="btn block" data-act="planShow">Review and apply changes</button>` : '');
     const ref = planRef(s.v), n = s.pick.filter(Boolean).length;
     return `${s.summary ? `<div class="small">${esc(s.summary)}</div>` : ''}<div class="tiny muted">Tap to choose which changes to apply. Unchecked ones are left out.</div>
       ${s.changes.map((c, i) => { const no = planWhyNot(c, ref); return `<div class="card tight row" data-k="plan-change" data-act="${no ? 'noop' : 'planTog'}" data-i="${i}" style="cursor:pointer;flex-direction:row;gap:12px;align-items:flex-start;${no ? 'opacity:.55' : ''}"><span class="ckbox ${s.pick[i] ? 'on' : ''}">${s.pick[i] ? ic('check') : ''}</span><div class="grow"><b class="small">${esc(c.title || planText(c))}</b><div class="tiny num">${esc(planText(c))}</div>${c.why ? `<div class="tiny muted">${esc(c.why)}</div>` : ''}${no ? `<div class="tiny" style="color:var(--a-warn)">Can't apply: ${esc(no)}</div>` : ''}</div></div>`; }).join('')}
       <div class="row"><button class="btn ghost" data-act="planBackAi">Back</button><button class="btn block" data-act="planApply" ${n ? '' : 'disabled'}>Apply ${n} change${n === 1 ? '' : 's'}</button></div>`;
   };
   A.planTog = d => { U.sheet.pick[+d.i] = !U.sheet.pick[+d.i]; render(); };
+  A.planShow = () => { const s = U.sheet, j = changesIn(parseJson(s.answer)); if (j) { planLoad(s, j); render(); } };
   A.planBackAi = () => { const s = U.sheet; delete s.changes; render(); };
   A.planApply = () => {
     const s = U.sheet, ref = planRef(s.v); let ok = 0;
@@ -2136,15 +2167,16 @@
   const bridgeApply2 = A.bridgeApply;
   A.bridgeApply = d => {
     if (!PLAN_V.includes(d.v)) return bridgeApply2(d);
-    const j = parseJson($('#bridgeIn').value);
-    if (!j || !Array.isArray(j.changes) || !j.changes.length) return toast(j && j.suggestions ? 'That answer is in the old format. Copy the prompt again.' : 'That answer has no changes in it.');
+    const raw = $('#bridgeIn').value, j = changesIn(parseJson(raw));
+    if (!j) { U.sheet.noChanges = true; render(); return toast('That answer has no changes the app can apply.'); }
+    if (!U.sheet.answer) U.sheet.answer = raw;
     planLoad(U.sheet, j); render();
   };
   const aiSend2 = A.aiSend;
   A.aiSend = async () => {
     await aiSend2();
     const s = U.sheet;
-    if (s && PLAN_V.includes(s.v) && s.answer) { const j = parseJson(s.answer); if (j && Array.isArray(j.changes) && j.changes.length) { planLoad(s, j); render(); } }
+    if (s && PLAN_V.includes(s.v) && s.answer) { const j = changesIn(parseJson(s.answer)); if (j) planLoad(s, j); else s.noChanges = true; render(); }
   };
   render();
   if (REAL) hcSync();

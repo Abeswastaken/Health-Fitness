@@ -137,12 +137,14 @@
   const aiUrl = () => { const e = S.ai.endpoint.trim().replace(/\/+$/, ''); return /\/chat\/completions$/.test(e) ? e : e + '/chat/completions'; };
   async function aiCall(text, img) {
     const content = img ? [{ type: 'text', text }, { type: 'image_url', image_url: { url: img } }] : text;
-    const r = await native('http', { url: aiUrl(), method: 'POST', useAiKey: true, body: JSON.stringify({ model: S.ai.model, max_tokens: 2000, messages: [{ role: 'user', content }] }) });
+    const r = await native('http', { url: aiUrl(), method: 'POST', useAiKey: true, body: JSON.stringify({ model: S.ai.model, max_tokens: 4096, messages: [{ role: 'user', content }] }) });
     if (r.error) throw new Error(r.error);
     let j = null; try { j = JSON.parse(r.body); } catch (e) {}
     if (r.status < 200 || r.status > 299) throw new Error(`${r.status}: ${(j && (j.error?.message || j.message)) || (r.body || '').slice(0, 160)}`);
-    const msg = j?.choices?.[0]?.message?.content;
-    return Array.isArray(msg) ? msg.map(x => x.text || '').join('') : (msg || '');
+    const ch = j?.choices?.[0], msg = ch?.message?.content;
+    const out = Array.isArray(msg) ? msg.map(x => x.text || '').join('') : (msg || '');
+    if (!out.trim()) throw new Error(`The AI sent back an empty answer${ch?.finish_reason ? ' (' + ch.finish_reason + ')' : ''}. Tap Ask AI again; if it keeps happening, try another model.`);
+    return out;
   }
   A.aiTest = async () => {
     if (!aiReady()) return toast('Fill in the endpoint and model first.');
@@ -155,7 +157,7 @@
     const s = U.sheet; if (!s || s.busy) return;
     const needsImg = s.v === 'food' || s.v === 'eqphoto';
     if (needsImg && !s.img) return toast('Add a photo first.');
-    s.busy = true; s.err = ''; render();
+    s.busy = true; s.err = ''; s.noChanges = false; render();
     try { s.answer = await aiCall(bridgePrompt(s.v).replace(/\n\n\(Attach the photo when you paste this\.\)/, ''), needsImg ? s.img : null); }
     catch (e) { s.err = e.message; }
     s.busy = false; render();
@@ -174,7 +176,19 @@
       <button class="btn soft" data-act="bridgeApply" data-v="${s.v}">Apply</button>
       <details class="tiny"><summary>Prompt</summary><textarea class="f small" rows="6" readonly id="bridgeOut">${esc(bridgePrompt(s.v))}</textarea></details>`;
   };
-  const parseJson = t => { try { return JSON.parse((String(t).match(/\{[\s\S]*\}/) || [''])[0]); } catch (e) { return null; } };
+  const parseJson = t => {
+    t = String(t || '');
+    const tries = [], fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fence) tries.push(fence[1]);
+    tries.push((t.match(/\{[\s\S]*\}/) || [''])[0]);
+    // Every balanced {...} block, biggest first.
+    for (let i = t.indexOf('{'); i >= 0; i = t.indexOf('{', i + 1)) {
+      let d = 0, q = false;
+      for (let k = i; k < t.length; k++) { const c = t[k]; if (q) { if (c === '\\') k++; else if (c === '"') q = false; } else if (c === '"') q = true; else if (c === '{') d++; else if (c === '}' && --d === 0) { tries.push(t.slice(i, k + 1)); break; } }
+    }
+    for (const s of tries.sort((a, b) => b.length - a.length)) { try { const j = JSON.parse(s); if (j && typeof j === 'object') return j; } catch (e) {} }
+    return null;
+  };
   // Readable view of the answer before applying it.
   function aiAnswerView(s) {
     const j = parseJson(s.answer); if (!j) return '';
@@ -256,16 +270,30 @@
     else if (a === 'rest_day') { ref.days[i].off = true; ref.week[i] = ref.week[i].filter(x => x.daily); }
     else if (a === 'move_day') { const j = dayIx(c.to_day); ref.days[j] = { ...ref.days[i], off: false }; ref.week[j] = [...ref.week[j].filter(x => x.daily), ...ref.week[i].filter(x => !x.daily)]; ref.days[i] = { ...ref.days[i], off: true, groups: [] }; ref.week[i] = ref.week[i].filter(x => x.daily); }
   }
-  const planLoad = (s, j) => { s.changes = j.changes; s.summary = j.summary || ''; s.pick = j.changes.map(c => !planWhyNot(c, planRef(s.v))); };
+  // Finds the "changes" list even if the AI wrapped it in another object.
+  const changesIn = j => { if (!j || typeof j !== 'object') return null; if (Array.isArray(j.changes) && j.changes.length) return j; for (const v of Object.values(j)) { const r = v && typeof v === 'object' && !Array.isArray(v) ? changesIn(v) : null; if (r) return r; } return null; };
+  const planLoad = (s, j) => {
+    s.changes = j.changes; s.summary = j.summary || ''; s.pick = j.changes.map(c => !planWhyNot(c, planRef(s.v))); s.noChanges = false;
+    U.lastAi = U.lastAi || {}; U.lastAi[s.v] = { answer: s.answer || $('#bridgeIn')?.value || JSON.stringify(j), extra: s.extra || '' };
+  };
+  // "Show last AI answer": reopens the pick-list after the sheet was closed.
+  A.planReopen = d => {
+    const last = U.lastAi?.[d.v]; if (!last) return;
+    U.sheet = { kind: 'bridge', title: 'Last AI coach answer', v: d.v, answer: last.answer, extra: last.extra };
+    const j = changesIn(parseJson(last.answer)); if (j) planLoad(U.sheet, j);
+    render();
+  };
+  window.planReopenBtn = v => U.lastAi?.[v] ? `<button class="btn ghost sm" data-act="planReopen" data-v="${v}" style="align-self:flex-start">Show last AI answer</button>` : '';
   const bridgeSheet2 = SHEETS.bridge;
   SHEETS.bridge = s => {
-    if (!s.changes) return bridgeSheet2(s);
+    if (!s.changes) return (s.noChanges ? `<div class="small" style="color:var(--a-warn)">The AI answered, but not with changes the app can apply. Tap Ask AI again (your details are kept).</div>` : '') + bridgeSheet2(s) + (s.answer && changesIn(parseJson(s.answer)) ? `<button class="btn block" data-act="planShow">Review and apply changes</button>` : '');
     const ref = planRef(s.v), n = s.pick.filter(Boolean).length;
     return `${s.summary ? `<div class="small">${esc(s.summary)}</div>` : ''}<div class="tiny muted">Tap to choose which changes to apply. Unchecked ones are left out.</div>
       ${s.changes.map((c, i) => { const no = planWhyNot(c, ref); return `<div class="card tight row" data-k="plan-change" data-act="${no ? 'noop' : 'planTog'}" data-i="${i}" style="cursor:pointer;flex-direction:row;gap:12px;align-items:flex-start;${no ? 'opacity:.55' : ''}"><span class="ckbox ${s.pick[i] ? 'on' : ''}">${s.pick[i] ? ic('check') : ''}</span><div class="grow"><b class="small">${esc(c.title || planText(c))}</b><div class="tiny num">${esc(planText(c))}</div>${c.why ? `<div class="tiny muted">${esc(c.why)}</div>` : ''}${no ? `<div class="tiny" style="color:var(--a-warn)">Can't apply: ${esc(no)}</div>` : ''}</div></div>`; }).join('')}
       <div class="row"><button class="btn ghost" data-act="planBackAi">Back</button><button class="btn block" data-act="planApply" ${n ? '' : 'disabled'}>Apply ${n} change${n === 1 ? '' : 's'}</button></div>`;
   };
   A.planTog = d => { U.sheet.pick[+d.i] = !U.sheet.pick[+d.i]; render(); };
+  A.planShow = () => { const s = U.sheet, j = changesIn(parseJson(s.answer)); if (j) { planLoad(s, j); render(); } };
   A.planBackAi = () => { const s = U.sheet; delete s.changes; render(); };
   A.planApply = () => {
     const s = U.sheet, ref = planRef(s.v); let ok = 0;
@@ -279,13 +307,14 @@
   const bridgeApply2 = A.bridgeApply;
   A.bridgeApply = d => {
     if (!PLAN_V.includes(d.v)) return bridgeApply2(d);
-    const j = parseJson($('#bridgeIn').value);
-    if (!j || !Array.isArray(j.changes) || !j.changes.length) return toast(j && j.suggestions ? 'That answer is in the old format. Copy the prompt again.' : 'That answer has no changes in it.');
+    const raw = $('#bridgeIn').value, j = changesIn(parseJson(raw));
+    if (!j) { U.sheet.noChanges = true; render(); return toast('That answer has no changes the app can apply.'); }
+    if (!U.sheet.answer) U.sheet.answer = raw;
     planLoad(U.sheet, j); render();
   };
   const aiSend2 = A.aiSend;
   A.aiSend = async () => {
     await aiSend2();
     const s = U.sheet;
-    if (s && PLAN_V.includes(s.v) && s.answer) { const j = parseJson(s.answer); if (j && Array.isArray(j.changes) && j.changes.length) { planLoad(s, j); render(); } }
+    if (s && PLAN_V.includes(s.v) && s.answer) { const j = changesIn(parseJson(s.answer)); if (j) planLoad(s, j); else s.noChanges = true; render(); }
   };
