@@ -1310,6 +1310,7 @@
       ${w.days.map((d, i) => `<div class="card day tight"><div class="row"><h2 class="grow">${DAYS[i]}</h2><span class="small muted num">${d.off ? 'Rest' : w.week[i].reduce((a, x) => a + x.sets, 0) + ' sets'}</span>${sw(!d.off, 'wizDay', `data-i="${i}" aria-label="Train on ${DAYS[i]}"`)}</div>
         ${d.off ? (w.week[i].length ? bullets(w.week[i]) : '') : `<div class="chips">${GROUPS.map(g => `<button class="chip sm ${d.groups.includes(g) ? 'on' : ''}" data-act="wizGroup" data-i="${i}" data-v="${g}">${g}</button>`).join('')}</div>${bullets(w.week[i])}<button class="btn sm ghost" data-act="wizEditDay" data-i="${i}" style="align-self:flex-start">${ic('edit')}${w.week[i].length ? 'Edit exercises' : 'Add exercises'}</button>`}</div>`).join('')}
       <div class="small muted num">${w.days.filter(d => !d.off).length} training days \u00b7 ${total} sets a week</div>
+      <button class="btn soft" data-act="bridge" data-v="draft" data-k="ask-ai-coach">${ic('spark')}Ask AI coach to improve this week</button>
       <div class="row">${w.mode === 'coach' ? `<button class="btn block" data-act="wizReview">${ic('spark')}Coach review${w.round ? ' (round ' + (w.round + 1) + ')' : ''}</button>` : `<button class="btn ghost" data-act="wizReview">Coach check</button><button class="btn block" data-act="wizSave">Save plan</button>`}</div></div>`;
   };
 
@@ -1404,7 +1405,14 @@
     const me = `I'm a ${S.profile.age}-year-old male, ${S.profile.level}, ${S.profile.weightLb} lb, ${ftIn(S.profile.heightIn)}, training at home with: ${own}.`;
     const weekText = (week, days) => week.map((d, i) => d.length ? `${DAYS[i]} (${days[i].groups.join('+') || 'daily min'}): ${d.map(x => `${exName(x.ex)} ${x.sets}x${schemeOf(x).lo}-${schemeOf(x).hi}`).join('; ')}` : `${DAYS[i]}: rest`).join('\n');
     if (v === 'workout') return `You are a fitness expert. Generate a workout routine based on these constraints:\n\nAvailable Equipment: ${own}\nFitness Level: ${S.profile.level}\nDuration Minutes: 45\nFocus Muscles: ${($('#genq')?.value || 'chest')}\nUser Goal: ${S.goal.rate < 0 ? 'lose fat, keep muscle' : S.goal.rate > 0 ? 'build muscle' : 'maintain'}\n\nReturn ONLY valid JSON in this exact format:\n{"routine_name":"string","exercises":[{"name":"string","sets":number,"reps":"string","rest_seconds":number,"notes":"string or null"}],"estimated_duration_minutes":number}\n\nDo not include any text outside the JSON object.`;
-    if (v === 'coach' || v === 'plan' || v === 'draft') {
+    if (v === 'plan' || v === 'draft') {
+      const week = v === 'draft' ? U.wiz.week : S.planWeek || [], days = v === 'draft' ? U.wiz.days : S.days;
+      const items = L.planCheck({ week, days, exById: EXB, targets: S.targets, focus: new Set(S.focus) }).map(x => `- ${x.title}: ${x.detail}`).join('\n');
+      const planned = L.setsByMuscle(week.flat(), EXB), gear = ownedGear();
+      const allowed = EX.filter(e => gear.has(e.g) && e.cat === 'strength').map(e => e.n);
+      return `You are my strength coach. ${me}\nGoal: ${S.goal.rate}% body weight per week. Focus muscles: ${S.focus.join(', ') || 'none'}. I struggle with legs and squats, so I keep a daily leg minimum.\n\n${v === 'draft' ? 'My draft week' : 'My week'} (day: exercise sets x reps):\n${weekText(week, days)}\n\nSets per muscle per week: ${Object.entries(planned).filter(([, n]) => n).map(([m, n]) => `${m} ${n}`).join(', ')}\n\nMy app's automatic checks found:\n${items || '- nothing'}\n\nSuggest 3-8 specific changes to this week. My app applies them automatically, so each change must be one of these actions:\n- add: put "exercise" on "day" for "sets" sets\n- remove: take "exercise" off "day"\n- swap: replace "exercise" with "new_exercise" on "day" (or every day if day is null)\n- sets: set "exercise" on "day" to "sets" sets\n- rest_day: make "day" a rest day\n- move_day: move everything from "day" to "to_day" (which becomes a training day)\nDays are Sun, Mon, Tue, Wed, Thu, Fri, Sat. Exercise names must be copied exactly from this list (my equipment):\n${allowed.join('; ')}\n\nReturn ONLY JSON: {"summary":"string","changes":[{"title":"short string","why":"string","action":"add|remove|swap|sets|rest_day|move_day","day":"Mon","exercise":"string or null","new_exercise":"string or null","sets":number or null,"to_day":"string or null"}]}`;
+    }
+    if (v === 'coach') {
       const week = v === 'draft' ? U.wiz.week : S.planWeek || [], days = v === 'draft' ? U.wiz.days : S.days;
       const items = (v === 'coach' ? runReview().map(x => `- [${x.level}] ${x.title}: ${x.detail}`) : L.planCheck({ week, days, exById: EXB, targets: S.targets, focus: new Set(S.focus) }).map(x => `- ${x.title}: ${x.detail}`)).join('\n');
       const planned = L.setsByMuscle(week.flat(), EXB);
@@ -2072,6 +2080,71 @@
       U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; return render();
     } else { U.sheet = null; return render(); }
     U.sheet = null; gameCache = null; save(); render();
+  };
+
+  // ----- AI coach changes to a plan: pick which ones, then apply them for real -----
+  const PLAN_V = ['draft', 'plan'];
+  const planRef = v => v === 'draft' ? U.wiz : { get days() { return S.days; }, get week() { return S.planWeek || (S.planWeek = [...Array(7)].map(() => [])); } };
+  const dayIx = n => { const t = String(n || '').trim().slice(0, 3).toLowerCase(); return DAYS.findIndex(d => d.toLowerCase() === t); };
+  const exOf = n => n ? aiEx(n) : null;
+  const sameEx = (a, b) => a === b;
+  // Checks a change against the current week. Returns why it can't apply, or ''.
+  function planWhyNot(c, ref) {
+    const a = String(c.action || '').toLowerCase(), i = dayIx(c.day), e = exOf(c.exercise);
+    if (!['add', 'remove', 'swap', 'sets', 'rest_day', 'move_day'].includes(a)) return 'unknown change type';
+    if (a !== 'swap' && i < 0) return 'no day given';
+    if (a === 'move_day' && dayIx(c.to_day) < 0) return 'no target day';
+    if (['add', 'remove', 'swap', 'sets'].includes(a) && !e) return `"${c.exercise}" isn't in your exercise list`;
+    if (a === 'swap' && !exOf(c.new_exercise)) return `"${c.new_exercise}" isn't in your exercise list`;
+    if ((a === 'remove' || a === 'sets') && !ref.week[i].some(x => sameEx(x.ex, e.id))) return `${e.n} isn't on ${DAYS[i]}`;
+    if (a === 'swap' && !(i >= 0 ? ref.week[i] : ref.week.flat()).some(x => sameEx(x.ex, e.id))) return `${e.n} isn't in the week`;
+    return '';
+  }
+  function planText(c) {
+    const a = String(c.action || '').toLowerCase(), d = DAYS[dayIx(c.day)] || 'every day', e = exOf(c.exercise)?.n || c.exercise, n = exOf(c.new_exercise)?.n || c.new_exercise;
+    return { add: `${d}: add ${e}, ${c.sets || 3} sets`, remove: `${d}: remove ${e}`, swap: `${d}: ${e} \u2192 ${n}`, sets: `${d}: ${e} to ${c.sets} sets`, rest_day: `${d}: rest day`, move_day: `Move ${d} to ${DAYS[dayIx(c.to_day)] || c.to_day}` }[a] || a;
+  }
+  function planDo(c, ref) {
+    const a = String(c.action || '').toLowerCase(), i = dayIx(c.day), e = exOf(c.exercise), sets = Math.max(1, Math.min(10, Math.round(+c.sets || 3)));
+    if (a === 'add') { ref.days[i].off = false; const it = ref.week[i].find(x => x.ex === e.id); if (it) it.sets = sets; else ref.week[i].push({ ex: e.id, sets, scheme: 'build' }); }
+    else if (a === 'remove') ref.week[i] = ref.week[i].filter(x => x.ex !== e.id);
+    else if (a === 'sets') ref.week[i].forEach(x => { if (x.ex === e.id) x.sets = sets; });
+    else if (a === 'swap') { const to = exOf(c.new_exercise); (i >= 0 ? [ref.week[i]] : ref.week).forEach(list => list.forEach(x => { if (x.ex === e.id) x.ex = to.id; })); }
+    else if (a === 'rest_day') { ref.days[i].off = true; ref.week[i] = ref.week[i].filter(x => x.daily); }
+    else if (a === 'move_day') { const j = dayIx(c.to_day); ref.days[j] = { ...ref.days[i], off: false }; ref.week[j] = [...ref.week[j].filter(x => x.daily), ...ref.week[i].filter(x => !x.daily)]; ref.days[i] = { ...ref.days[i], off: true, groups: [] }; ref.week[i] = ref.week[i].filter(x => x.daily); }
+  }
+  const planLoad = (s, j) => { s.changes = j.changes; s.summary = j.summary || ''; s.pick = j.changes.map(c => !planWhyNot(c, planRef(s.v))); };
+  const bridgeSheet2 = SHEETS.bridge;
+  SHEETS.bridge = s => {
+    if (!s.changes) return bridgeSheet2(s);
+    const ref = planRef(s.v), n = s.pick.filter(Boolean).length;
+    return `${s.summary ? `<div class="small">${esc(s.summary)}</div>` : ''}<div class="tiny muted">Tap to choose which changes to apply. Unchecked ones are left out.</div>
+      ${s.changes.map((c, i) => { const no = planWhyNot(c, ref); return `<div class="card tight row" data-k="plan-change" data-act="${no ? 'noop' : 'planTog'}" data-i="${i}" style="cursor:pointer;flex-direction:row;gap:12px;align-items:flex-start;${no ? 'opacity:.55' : ''}"><span class="ckbox ${s.pick[i] ? 'on' : ''}">${s.pick[i] ? ic('check') : ''}</span><div class="grow"><b class="small">${esc(c.title || planText(c))}</b><div class="tiny num">${esc(planText(c))}</div>${c.why ? `<div class="tiny muted">${esc(c.why)}</div>` : ''}${no ? `<div class="tiny" style="color:var(--a-warn)">Can't apply: ${esc(no)}</div>` : ''}</div></div>`; }).join('')}
+      <div class="row"><button class="btn ghost" data-act="planBackAi">Back</button><button class="btn block" data-act="planApply" ${n ? '' : 'disabled'}>Apply ${n} change${n === 1 ? '' : 's'}</button></div>`;
+  };
+  A.planTog = d => { U.sheet.pick[+d.i] = !U.sheet.pick[+d.i]; render(); };
+  A.planBackAi = () => { const s = U.sheet; delete s.changes; render(); };
+  A.planApply = () => {
+    const s = U.sheet, ref = planRef(s.v); let ok = 0;
+    s.changes.forEach((c, i) => { if (s.pick[i] && !planWhyNot(c, ref)) { planDo(c, ref); ok++; } });
+    U.sheet = null;
+    if (s.v === 'plan') { gameCache = null; save(); }
+    toast(`Applied ${ok} change${ok === 1 ? '' : 's'}.${s.v === 'draft' ? ' Review the week, then save.' : ''}`);
+    if (s.v === 'draft' && U.wiz.step === 'review') U.wiz.step = 'edit';
+    render();
+  };
+  const bridgeApply2 = A.bridgeApply;
+  A.bridgeApply = d => {
+    if (!PLAN_V.includes(d.v)) return bridgeApply2(d);
+    const j = parseJson($('#bridgeIn').value);
+    if (!j || !Array.isArray(j.changes) || !j.changes.length) return toast(j && j.suggestions ? 'That answer is in the old format. Copy the prompt again.' : 'That answer has no changes in it.');
+    planLoad(U.sheet, j); render();
+  };
+  const aiSend2 = A.aiSend;
+  A.aiSend = async () => {
+    await aiSend2();
+    const s = U.sheet;
+    if (s && PLAN_V.includes(s.v) && s.answer) { const j = parseJson(s.answer); if (j && Array.isArray(j.changes) && j.changes.length) { planLoad(s, j); render(); } }
   };
   render();
   if (REAL) hcSync();
