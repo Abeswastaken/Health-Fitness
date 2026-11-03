@@ -6,7 +6,10 @@
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const r0 = n => Math.round(n), r1 = n => Math.round(n * 10) / 10;
   const DAY = 864e5;
-  const today = L.iso(new Date());
+  // The phone's own calendar day (toISOString is UTC, which flips to tomorrow at 5 PM in MST).
+  const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = localDay();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && localDay() !== today) location.reload(); });
   const dateAdd = (d, n) => L.iso(new Date(new Date(d + 'T12:00:00').getTime() + n * DAY));
   const dow = d => new Date(d + 'T12:00:00').getDay();
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

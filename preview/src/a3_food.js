@@ -43,7 +43,7 @@
     const isR = !!x.ing;
     const m = isR ? L.recipePerContainer(x, foodsById()) : x;
     const fav = S.favFoods.includes(x.id);
-    return `<div class="li" data-act="${act}" data-id="${x.id}" data-r="${isR ? 1 : ''}"><div class="grow"><div class="small">${esc(x.name)}</div><div class="tiny muted">${isR ? '1 container' : `${x.serv} ${esc(x.unit)}`} · P${r0(m.p)} C${r0(m.c)} F${r0(m.f)}</div></div><span class="num small">${r0(m.cal)}</span><button class="iconbtn sm star ${fav ? 'on' : ''}" data-act="favFood" data-id="${x.id}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites">${ic('star')}</button></div>`;
+    return `<div class="li" data-act="${act}" data-id="${x.id}" data-r="${isR ? 1 : ''}" data-long="foodMenu"><div class="grow"><div class="small">${esc(x.name)}</div><div class="tiny muted">${isR ? '1 container' : `${x.serv} ${esc(x.unit)}`} · P${r0(m.p)} C${r0(m.c)} F${r0(m.f)}</div></div><span class="num small">${r0(m.cal)}</span><button class="iconbtn sm star ${fav ? 'on' : ''}" data-act="favFood" data-id="${x.id}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites">${ic('star')}</button></div>`;
   }
   SCREENS['food:recipes'] = () => `
     <div class="card" data-k="recipes-help"><div class="small muted">Put everything in the pot, say how many containers it fills, and log one container at a time.</div><button class="btn" data-act="newRecipe">${ic('plus')}New recipe</button></div>
