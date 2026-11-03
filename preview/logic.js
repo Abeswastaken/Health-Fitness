@@ -68,6 +68,7 @@
   }, L.ZERO);
   L.recipePerContainer = (recipe, foodsById) => L.scale(L.recipeTotal(recipe, foodsById), 1 / Math.max(1, recipe.containers));
   L.entryMacros = (entry, foodsById, recipesById) => {
+    if (entry.quick) return L.scale(entry.quick, entry.qty || 1);
     if (entry.recipeId) {
       const r = recipesById[entry.recipeId];
       return r ? L.scale(L.recipePerContainer(r, foodsById), entry.qty) : L.ZERO;
@@ -76,6 +77,32 @@
     return fd ? L.scale(fd, entry.qty) : L.ZERO;
   };
   L.dayTotals = (entries, foodsById, recipesById) => entries.reduce((t, e) => L.add(t, L.entryMacros(e, foodsById, recipesById)), L.ZERO);
+  // "Usually now": what you've logged at this meal lately (same weekday counts double), minus what's already in it today.
+  // log: [{date, meal, foodId|recipeId, qty}]  -> [{key, foodId?, recipeId?, qty, n}] best first.
+  L.usuallyNow = (log, meal, date, opts = {}) => {
+    const dayMs = 864e5, t = new Date(date + 'T12:00:00'), wd = t.getDay(), days = opts.days || 21;
+    const have = new Set(log.filter(e => e.date === date && e.meal === meal).map(e => e.recipeId || e.foodId));
+    const score = {};
+    for (const e of log) {
+      if (e.meal !== meal || e.quick || e.date >= date) continue;
+      const ago = Math.round((t - new Date(e.date + 'T12:00:00')) / dayMs);
+      if (ago < 1 || ago > days) continue;
+      const k = e.recipeId || e.foodId; if (!k || have.has(k)) continue;
+      const w = (new Date(e.date + 'T12:00:00').getDay() === wd ? 2 : 1) + (ago <= 3 ? 1 : 0);
+      const x = score[k] || (score[k] = { key: k, foodId: e.foodId, recipeId: e.recipeId, qty: e.qty, n: 0, last: '' });
+      x.n += w; if (e.date > x.last) { x.last = e.date; x.qty = e.qty; }
+    }
+    return Object.values(score).filter(x => x.n >= 2).sort((a, b) => b.n - a.n || b.last.localeCompare(a.last)).slice(0, opts.max || 4);
+  };
+  // What's left today, and one food from your own list that fits it (most protein per calorie that still fits).
+  // items: [{id, name, cal, p, c, f}] per one portion.
+  L.fillSuggestion = (left, items) => {
+    if (left.cal < 60) return null;
+    const fit = items.filter(x => x.cal > 20 && x.cal <= left.cal && x.p > 0)
+      .map(x => ({ ...x, score: (left.p > 10 ? Math.min(x.p, left.p) / x.cal : 0) + x.cal / left.cal * 0.05 }))
+      .sort((a, b) => b.score - a.score);
+    return fit[0] || null;
+  };
   // Net remaining = goal minus food. Workout burn is shown separately and never counted here.
   L.netRemaining = (goalCal, eatenCal) => goalCal - eatenCal;
 

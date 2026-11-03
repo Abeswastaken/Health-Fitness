@@ -40,6 +40,7 @@
       <label class="fl"><span><b>API key</b> · required by most services</span><input class="f" type="password" placeholder="${REAL ? (window.HFDev.hasSecret('ai_key') ? 'Key saved on this phone (type to replace)' : 'Paste your key') : 'Don\'t enter a real key in this preview'}" data-in="ai" data-k2="key"><span class="tiny">Made in the service's console (for Anthropic: console.anthropic.com → API keys). It costs money per use on paid services. The app keeps it in its private storage on the phone (not in backup files) and only sends it to the endpoint above.</span></label>
       <div class="row small"><span class="grow">Model can read photos</span>${sw(S.ai.vision, 'aiVision')}</div>
       <button class="btn sm ghost" data-act="aiTest" style="align-self:flex-start">Test connection</button>` : ''}</div>
+    ${freeKeysCard()}
     <div class="card" data-k="set-schemes"><h2>Rep schemes</h2>${Object.entries(S.schemes).map(([k, s]) => `<div class="row small"><b style="width:76px">${s.name}</b><input class="f num w56" type="number" value="${s.lo}" data-in="scheme" data-s="${k}" data-k2="lo"><span>to</span><input class="f num w56" type="number" value="${s.hi}" data-in="scheme" data-s="${k}" data-k2="hi"><span class="muted nw">reps, rest</span><input class="f num w56" type="number" value="${s.rest}" data-in="scheme" data-s="${k}" data-k2="rest"><span class="muted">s</span></div><div class="tiny muted">${esc(s.tip)}</div>`).join('')}
       <button class="btn sm soft" data-act="bridge" data-v="schemes" style="align-self:flex-start">${ic('spark')}Ask AI to review these against my history</button>
       <div class="tiny muted">Weight jumps are 2.5 lb. If a suggested weight doesn't fit your gear, type the real one in the logger.</div></div>
@@ -103,7 +104,7 @@
   }
   FULL.ingPick = () => {
     const q = U.ingq || '';
-    const res = q ? searchFoods(q).filter(x => !x.item.ing) : null;
+    const res = q ? searchFoods(q, { noMeals: true }).filter(x => !x.item.ing) : null;
     const rows = list => list.map(x => foodRow(x, 'ingAdd')).join('');
     return `${bar('Add ingredient')}<div class="scroll">
       <input class="f" id="ingq" placeholder="Search foods or scan a barcode" value="${esc(q)}" data-in="ingq" autocomplete="off">

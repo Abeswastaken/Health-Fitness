@@ -15,17 +15,18 @@
     const gps = gramsPer(x, s.r), gm = gps && s.gm !== false;
     const what = s.r ? `1 container${gps ? ' = ' + r0(gps) + ' g' : ''}` : `1 serving = ${x.servName ? esc(x.servName) : r1(x.serv) + ' ' + esc(x.unit)}${gps && !['g', 'ml'].includes(x.unit) ? ' (' + r0(gps) + ' g)' : ''}`;
     return `<div class="row"><div class="small muted grow">${what} · ${esc(x.src || 'Recipe')}${x.barcode ? ' · ' + x.barcode : ''}</div><button class="iconbtn star ${fav ? 'on' : ''}" data-act="favFood" data-id="${s.id}" aria-label="Favorite">${ic('star')}</button></div>
-      ${gps ? `<div class="seg" data-k="qty-mode"><button class="${gm ? 'on' : ''}" data-act="qtyMode" data-v="g">Grams</button><button class="${gm ? '' : 'on'}" data-act="qtyMode" data-v="s">${s.r ? 'Containers' : 'Servings'}</button></div>` : ''}
+      ${gps ? `<div class="seg" data-k="qty-mode"><button class="${gm ? 'on' : ''}" data-act="qtyMode" data-v="g">Grams</button><button class="${gm ? '' : 'on'}" data-act="qtyMode" data-v="s">${s.r ? 'Containers' : x.servName ? esc(x.servName.replace(/\s*\(.*\)\s*$/, '')) : 'Servings'}</button></div>` : ''}
       ${gm ? `<div class="row"><button class="btn ghost" data-act="qtyG" data-v="-10">−</button><input class="f num" style="text-align:center;font-size:1.3em" type="number" inputmode="decimal" step="1" value="${r0(s.qty * gps)}" data-in="qtyg"><span class="small muted">g</span><button class="btn ghost" data-act="qtyG" data-v="10">+</button></div>`
       : `<div class="row"><button class="btn ghost" data-act="qty" data-v="-0.5">−</button><input class="f num" style="text-align:center;font-size:1.3em" type="number" step="0.25" value="${s.qty}" data-in="qty"><button class="btn ghost" data-act="qty" data-v="0.5">+</button></div>`}
       <div class="grid2 small num" data-k="qty-macros"><div><b>${r0(m.cal)}</b> kcal</div><div>P${r0(m.p)} C${r0(m.c)} F${r0(m.f)}</div></div>
       <div class="chips">${MEALS.map(mm => `<button class="chip ${s.meal === mm ? 'on' : ''}" data-act="sheetMeal" data-v="${mm}">${mm}</button>`).join('')}</div>
+      ${s.mode === 'edit' && s.r && !s.plan ? `<button class="btn sm ghost" data-act="explode" data-id="${s.entry}" style="align-self:flex-start">Split into its foods</button>` : ''}
       ${s.mode === 'edit' ? `<div class="row"><button class="btn ghost" data-act="${s.plan ? 'unplan' : 'delEntry'}" data-id="${s.entry}">${ic('trash')}Delete</button><button class="btn block" data-act="${s.plan ? 'savePlan' : 'saveEntry'}">Save changes</button></div>` :
       s.plan ? `<button class="btn block" data-act="addPlan">Add to ${fmtDate(U.mpDay)}</button>` : `<button class="btn block" data-act="logFood">Log to ${U.foodDate === today ? 'today' : fmtDate(U.foodDate)}</button>`}`;
   };
   const gramsPer = (x, r) => r ? (x.cooked ? x.cooked / Math.max(1, x.containers) : null) : ['g', 'ml'].includes(x.unit) ? x.serv : (+x.grams || null);
   // "90 g" when the food has a gram weight, else "x1.5" servings.
-  const qtyTxt = e => { const x = e.recipeId ? recipesById()[e.recipeId] : foodsById()[e.foodId]; const g = x && gramsPer(x, !!e.recipeId); return g ? r0(e.qty * g) + ' g' : '\u00d7' + r1(e.qty); };
+  const qtyTxt = e => { if (e.quick) return ''; const x = e.recipeId ? recipesById()[e.recipeId] : foodsById()[e.foodId]; const g = x && gramsPer(x, !!e.recipeId); return g ? r0(e.qty * g) + ' g' : '\u00d7' + r1(e.qty); };
   SHEETS.scan = ({ code }) => `<div class="small">Barcode <b class="num">${esc(code)}</b> isn't in Open Food Facts.</div>
       <label class="fl">What is it? (helps the AI)<input class="f" id="scanName" placeholder="e.g. Kirkland protein bar, chocolate"></label>
       <button class="btn" data-act="labelAI">${ic('camera')}Photo of the nutrition label</button>
@@ -65,7 +66,7 @@
       ${S.equipment[id] !== 'own' ? `<div class="row"><button class="btn sm ghost" data-act="eqSet" data-id="${id}" data-v="wish">Add to wishlist</button><button class="btn sm" data-act="eqSet" data-id="${id}" data-v="own">I bought it</button></div>` : ''}`;
   };
   SHEETS.planAdd = (s) => {
-    const res = s.q ? searchFoods(s.q) : null;
+    const res = s.q ? searchFoods(s.q, { noMeals: true }) : null;
     return `<div class="chips">${MEALS.map(m => `<button class="chip ${s.meal === m ? 'on' : ''}" data-act="planMeal" data-v="${m}">${m}</button>`).join('')}</div>
       <input class="f" id="planq" placeholder="Search foods and recipes" value="${esc(s.q || '')}" data-in="planq" autocomplete="off">
       ${res ? (res.length ? groupResults(res, 'planPick') : '<div class="small muted">No match.</div>') : `<div class="tiny muted">Favorites</div><div class="list">${S.favFoods.map(itemById).filter(Boolean).map(x => foodRow(x, 'planPick')).join('')}</div><div class="tiny muted">Recent</div><div class="list scroll5">${S.recent.map(itemById).filter(Boolean).map(x => foodRow(x, 'planPick')).join('')}</div>`}`;
@@ -120,6 +121,7 @@
     if (v === 'eqphoto') return `Identify all fitness equipment visible in this photo. Match against this catalog:\n${EQUIPMENT.map(e => e.name).join(', ')}\nReturn ONLY valid JSON: { "matches": ["equipment_name", ...] }\n\n(Attach the photo when you paste this.)`;
     if (v === 'eqlink') return `Read this product page and tell me what fitness equipment it is. Match it to one of: ${EQUIPMENT.map(e => e.name).join(', ')}.\nLink: <paste link>\nReturn ONLY JSON: {"name":"string","match":"string or null","price":"string or null"}`;
     if (v === 'food') return `Analyze this food photo. Estimate each food's weight in grams and its macros. Return ONLY valid JSON:\n{"foods":[{"name":"string","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}],"total_calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}\n\n(Attach the photo when you paste this.)`;
+    if (v === 'recipes') return recipesPrompt();
     if (v === 'label') { const s = U.sheet || {}; return `Read the Nutrition Facts label in this photo${s.name ? ` (it's ${s.name})` : ''}. Use the label's serving size and its gram weight. If the label only gives a household measure, estimate the grams.\nReturn ONLY valid JSON: {"name":"string","brand":"string or null","serving":"string, e.g. 2 cookies","serving_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"source":"label","confidence":number}\n\n(Attach the photo when you paste this.)`; }
     if (v === 'foodai') { const s = U.sheet || {}; return `Find the nutrition facts for this food${s.code ? ` (barcode ${s.code}, UPC/EAN)` : ''}${s.name ? `: ${s.name}` : ''}. Use the product's label if you know it, otherwise a close typical match, and say which.\nGive values for ONE serving and the serving's weight in grams.\nReturn ONLY valid JSON: {"name":"string","brand":"string or null","serving":"string, e.g. 1 bar","serving_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"source":"label | typical estimate","confidence":number}`; }
     return '';
@@ -192,7 +194,7 @@
   A.meal = d => { U.meal = d.v; render(); };
   // Long-press a food in Recent/Favorites/search: remove it from the lists.
   A.foodMenu = d => { const x = itemById(d.id); if (!x) return; U.sheet = { kind: 'foodMenu', title: x.name, id: d.id }; render(); };
-  SHEETS.foodMenu = ({ id }) => `${S.recent.includes(id) ? `<button class="btn ghost" data-act="recentDel" data-id="${id}">${ic('trash')}Remove from Recent</button>` : ''}
+  SHEETS.foodMenu = ({ id }) => `${S.foods.some(f => f.id === id) ? `<button class="btn ghost" data-act="foodEdit" data-id="${id}">${ic('edit')}Edit food</button>` : ''}${S.recent.includes(id) ? `<button class="btn ghost" data-act="recentDel" data-id="${id}">${ic('trash')}Remove from Recent</button>` : ''}
       ${S.favFoods.includes(id) ? `<button class="btn ghost" data-act="favFood" data-id="${id}">${ic('star')}Remove from Favorites</button>` : ''}
       ${S.foods.some(f => f.id === id) && !S.log.some(e => e.foodId === id) && !S.recipes.some(r => r.ing.some(i => i.foodId === id)) ? `<button class="btn ghost" data-act="foodDel" data-id="${id}">${ic('trash')}Delete this food</button>` : `<div class="tiny muted">Logged foods stay in your food list so past days keep their numbers.</div>`}`;
   A.recentDel = d => { S.recent = S.recent.filter(x => x !== d.id); U.sheet = null; save(); toast('Removed from Recent.'); };
@@ -215,10 +217,10 @@
   A.foodAI = d => { const name = d.src === 'scan' ? ($('#scanName')?.value || '').trim() : U.q; U.sheet = { kind: 'bridge', title: 'Macros from AI', v: 'foodai', code: d.src === 'scan' ? U.scanCode : '', name }; render(); };
   A.sheetMeal = d => { U.sheet.meal = d.v; render(); };
   A.logFood = () => { const s = U.sheet; S.log.push({ id: 'l' + Date.now(), date: U.foodDate, meal: s.meal, [s.r ? 'recipeId' : 'foodId']: s.id, qty: s.qty }); S.recent = [s.id, ...S.recent.filter(x => x !== s.id)].slice(0, 25); U.sheet = null; U.q = ''; save(); toast('Logged.'); };
-  A.editEntry = d => { const e = S.log.find(x => x.id === d.id); if (!e) return; U.sheet = { kind: 'food', mode: 'edit', title: entryName(e), entry: e.id, id: e.recipeId || e.foodId, r: !!e.recipeId, qty: e.qty, meal: e.meal }; render(); };
+  A.editEntry = d => { const e = S.log.find(x => x.id === d.id); if (!e) return; if (e.quick) return A.quickAdd({ entry: e.id }); U.sheet = { kind: 'food', mode: 'edit', title: entryName(e), entry: e.id, id: e.recipeId || e.foodId, r: !!e.recipeId, qty: e.qty, meal: e.meal }; render(); };
   A.saveEntry = () => { const s = U.sheet, e = S.log.find(x => x.id === s.entry); if (e) { e.qty = s.qty; e.meal = s.meal; } U.sheet = null; save(); toast('Updated.'); };
   A.delEntry = d => { S.log = S.log.filter(e => e.id !== d.id); U.sheet = null; save(); toast('Removed.'); };
-  A.newFood = () => { U.sheet = { kind: 'newFood', title: 'Custom food' }; render(); };
+  A.newFood = () => foodCard({ name: U.scanCode ? '' : (U.q || '').trim() }, { code: U.scanCode });
   A.saveFood = () => { const v = k => $('#nf-' + k).value; const f = { id: 'c' + Date.now(), name: v('name') || 'Custom food', src: 'Custom', serv: +v('serv') || 1, unit: v('unit'), cal: +v('cal'), p: +v('p'), c: +v('c'), f: +v('f') }; if (U.scanCode) { f.barcode = U.scanCode; U.scanCode = null; } S.foods.push(f); if (topFull()?.kind === 'ingPick') { U.sheet = null; save(); return A.ingAdd({ id: f.id }); } U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; save(); render(); };
   A.newRecipe = () => { U.draft = { id: 'r' + Date.now(), name: 'New recipe', containers: 4, ing: [] }; pushFull({ kind: 'recipe' }); };
   A.editRecipe = d => { U.draft = JSON.parse(JSON.stringify(recipesById()[d.id])); pushFull({ kind: 'recipe' }); };

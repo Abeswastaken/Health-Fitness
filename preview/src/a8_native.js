@@ -215,12 +215,9 @@
       else add(0, 'Plate: ' + (j.foods || []).map(x => x.name).slice(0, 3).join(', '), (j.foods || []).reduce((a, x) => a + (+x.grams || 0), 0) || 300, { cal: j.total_calories, p: j.protein_g, c: j.carbs_g, f: j.fat_g });
       toast(`Logged ${parts.length || 1} item${parts.length > 1 ? 's' : ''} to ${U.meal.toLowerCase()}. Tap any to change the grams.`);
     } else if (d.v === 'foodai' || d.v === 'label') {
-      const g = +j.serving_g || 100, s = U.sheet;
-      const f = { id: 'c' + Date.now(), name: [j.name || s.name || 'Food', j.brand].filter(Boolean).join(' · '), src: 'AI' + (j.source ? ' (' + j.source + ')' : ''), serv: g, unit: 'g', servName: j.serving || '', cal: r1(+j.calories || 0), p: r1(+j.protein_g || 0), c: r1(+j.carbs_g || 0), f: r1(+j.fat_g || 0) };
-      if (s.code) { f.barcode = s.code; U.scanCode = null; }
-      S.foods.push(f); save();
-      if (topFull()?.kind === 'ingPick') { U.sheet = null; return A.ingAdd({ id: f.id }); }
-      U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; return render();
+      const s = U.sheet;
+      return foodCard({ name: [j.name || s.name || 'Food', j.brand].filter(Boolean).join(' · '), servName: j.serving || '', grams: +j.serving_g || 100, cal: +j.calories || 0, p: +j.protein_g || 0, c: +j.carbs_g || 0, f: +j.fat_g || 0 },
+        { review: d.v === 'label' ? 'Read from the label.' : 'Looked up by AI' + (j.source ? ' (' + j.source + ')' : '') + '.', code: s.code || '', src: d.v === 'label' ? 'Label photo' : 'AI' });
     } else if (d.v === 'goal') {
       Object.assign(S.goal, { method: 'manual', cal: r0(j.calories), p: r0(j.protein_g), c: r0(j.carbs_g), f: r0(j.fat_g) }); toast('Targets updated.');
     } else if (d.v === 'schemes') {
