@@ -28,7 +28,8 @@
   const qtyTxt = e => { const x = e.recipeId ? recipesById()[e.recipeId] : foodsById()[e.foodId]; const g = x && gramsPer(x, !!e.recipeId); return g ? r0(e.qty * g) + ' g' : '\u00d7' + r1(e.qty); };
   SHEETS.scan = ({ code }) => `<div class="small">Barcode <b class="num">${esc(code)}</b> isn't in Open Food Facts.</div>
       <label class="fl">What is it? (helps the AI)<input class="f" id="scanName" placeholder="e.g. Kirkland protein bar, chocolate"></label>
-      <button class="btn" data-act="foodAI" data-src="scan">${ic('spark')}Fill in macros with AI</button>
+      <button class="btn" data-act="labelAI">${ic('camera')}Photo of the nutrition label</button>
+      <button class="btn soft" data-act="foodAI" data-src="scan">${ic('spark')}Look it up with AI</button>
       <button class="btn ghost" data-act="newFood">Enter it by hand</button>`;
   SHEETS.newFood = () => `<label class="fl">Name<input class="f" id="nf-name" placeholder="e.g. Mom's chili"></label><div class="grid2"><label class="fl">Serving size<input class="f" id="nf-serv" type="number" value="100"></label><label class="fl">Unit<input class="f" id="nf-unit" value="g"></label>${['cal', 'p', 'c', 'f'].map(k => `<label class="fl">${{ cal: 'Calories', p: 'Protein g', c: 'Carbs g', f: 'Fat g' }[k]}<input class="f num" id="nf-${k}" type="number" value="0"></label>`).join('')}</div><button class="btn block" data-act="saveFood">Save and log</button>`;
   SHEETS.weight = () => `<label class="fl">Today's weight (lb)<input class="f num" id="wt" type="number" step="0.1" value="${S.weights[S.weights.length - 1]?.lb || S.profile.weightLb}"></label><div class="tiny muted">Usually comes from your scale through Health Connect. Typed weights stay in this app.</div><button class="btn block" data-act="saveWeight">Save</button>`;
@@ -119,6 +120,7 @@
     if (v === 'eqphoto') return `Identify all fitness equipment visible in this photo. Match against this catalog:\n${EQUIPMENT.map(e => e.name).join(', ')}\nReturn ONLY valid JSON: { "matches": ["equipment_name", ...] }\n\n(Attach the photo when you paste this.)`;
     if (v === 'eqlink') return `Read this product page and tell me what fitness equipment it is. Match it to one of: ${EQUIPMENT.map(e => e.name).join(', ')}.\nLink: <paste link>\nReturn ONLY JSON: {"name":"string","match":"string or null","price":"string or null"}`;
     if (v === 'food') return `Analyze this food photo. Estimate each food's weight in grams and its macros. Return ONLY valid JSON:\n{"foods":[{"name":"string","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}],"total_calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}\n\n(Attach the photo when you paste this.)`;
+    if (v === 'label') { const s = U.sheet || {}; return `Read the Nutrition Facts label in this photo${s.name ? ` (it's ${s.name})` : ''}. Use the label's serving size and its gram weight. If the label only gives a household measure, estimate the grams.\nReturn ONLY valid JSON: {"name":"string","brand":"string or null","serving":"string, e.g. 2 cookies","serving_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"source":"label","confidence":number}\n\n(Attach the photo when you paste this.)`; }
     if (v === 'foodai') { const s = U.sheet || {}; return `Find the nutrition facts for this food${s.code ? ` (barcode ${s.code}, UPC/EAN)` : ''}${s.name ? `: ${s.name}` : ''}. Use the product's label if you know it, otherwise a close typical match, and say which.\nGive values for ONE serving and the serving's weight in grams.\nReturn ONLY valid JSON: {"name":"string","brand":"string or null","serving":"string, e.g. 1 bar","serving_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"source":"label | typical estimate","confidence":number}`; }
     return '';
   }
@@ -188,6 +190,13 @@
   A.foodDay = d => { const n = dateAdd(U.foodDate, +d.v); if (n > today) return; U.foodDate = n; render(); };
   A.foodDayPick = () => { U.foodDate = today; render(); };
   A.meal = d => { U.meal = d.v; render(); };
+  // Long-press a food in Recent/Favorites/search: remove it from the lists.
+  A.foodMenu = d => { const x = itemById(d.id); if (!x) return; U.sheet = { kind: 'foodMenu', title: x.name, id: d.id }; render(); };
+  SHEETS.foodMenu = ({ id }) => `${S.recent.includes(id) ? `<button class="btn ghost" data-act="recentDel" data-id="${id}">${ic('trash')}Remove from Recent</button>` : ''}
+      ${S.favFoods.includes(id) ? `<button class="btn ghost" data-act="favFood" data-id="${id}">${ic('star')}Remove from Favorites</button>` : ''}
+      ${S.foods.some(f => f.id === id) && !S.log.some(e => e.foodId === id) && !S.recipes.some(r => r.ing.some(i => i.foodId === id)) ? `<button class="btn ghost" data-act="foodDel" data-id="${id}">${ic('trash')}Delete this food</button>` : `<div class="tiny muted">Logged foods stay in your food list so past days keep their numbers.</div>`}`;
+  A.recentDel = d => { S.recent = S.recent.filter(x => x !== d.id); U.sheet = null; save(); toast('Removed from Recent.'); };
+  A.foodDel = d => { S.foods = S.foods.filter(f => f.id !== d.id); S.recent = S.recent.filter(x => x !== d.id); S.favFoods = S.favFoods.filter(x => x !== d.id); U.sheet = null; save(); toast('Food deleted.'); };
   A.recentTab = d => { U.recentTab = d.v; render(); };
   A.mealToggle = d => { S.mealOpen[d.v] = S.mealOpen[d.v] === false; save(); render(); };
   A.addToMeal = d => { U.meal = d.v; U.focusId = 'foodq'; render(); if ($('#scroll')) $('#scroll').scrollTop = 0; };
@@ -202,6 +211,7 @@
   A.qtyMode = d => { U.sheet.gm = d.v === 'g'; render(); };
   A.qtyG = d => { const g = sheetGps(); U.sheet.qty = Math.max(1, Math.round(U.sheet.qty * g) + +d.v) / g; render(); };
   // AI macros for a food by barcode and/or name (scan miss, or no match in search).
+  A.labelAI = () => { U.sheet = { kind: 'bridge', title: 'Read the label', v: 'label', code: U.scanCode, name: ($('#scanName')?.value || '').trim() }; render(); };
   A.foodAI = d => { const name = d.src === 'scan' ? ($('#scanName')?.value || '').trim() : U.q; U.sheet = { kind: 'bridge', title: 'Macros from AI', v: 'foodai', code: d.src === 'scan' ? U.scanCode : '', name }; render(); };
   A.sheetMeal = d => { U.sheet.meal = d.v; render(); };
   A.logFood = () => { const s = U.sheet; S.log.push({ id: 'l' + Date.now(), date: U.foodDate, meal: s.meal, [s.r ? 'recipeId' : 'foodId']: s.id, qty: s.qty }); S.recent = [s.id, ...S.recent.filter(x => x !== s.id)].slice(0, 25); U.sheet = null; U.q = ''; save(); toast('Logged.'); };
@@ -501,6 +511,18 @@
 
   // Drag a logged food by its grip to another meal.
   let drag = null;
+  // Long press (about half a second) on anything with data-long.
+  let longT = null, longFired = false, longXY = null;
+  phone.addEventListener('pointerdown', ev => {
+    longFired = false;
+    const el = ev.target.closest('[data-long]'); if (!el || ev.target.closest('button,[data-drag]')) return;
+    longXY = [ev.clientX, ev.clientY]; clearTimeout(longT);
+    longT = setTimeout(() => { longFired = true; navigator.vibrate?.(20); const fn = A[el.dataset.long]; if (fn) fn(el.dataset, el); }, 550);
+  });
+  const longCancel = ev => { if (longT && (!ev || ev.type !== 'pointermove' || Math.hypot(ev.clientX - longXY[0], ev.clientY - longXY[1]) > 10)) { clearTimeout(longT); longT = null; } };
+  ['pointerup', 'pointercancel', 'pointermove'].forEach(t => phone.addEventListener(t, longCancel));
+  phone.addEventListener('click', ev => { if (longFired) { longFired = false; ev.stopImmediatePropagation(); ev.preventDefault(); } }, true);
+  phone.addEventListener('contextmenu', ev => { if (ev.target.closest('[data-long]')) ev.preventDefault(); });
   phone.addEventListener('pointerdown', ev => {
     if (window.__pinMode) return;
     const h = ev.target.closest('[data-drag]'); if (!h) return;

@@ -6,7 +6,10 @@
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const r0 = n => Math.round(n), r1 = n => Math.round(n * 10) / 10;
   const DAY = 864e5;
-  const today = L.iso(new Date());
+  // The phone's own calendar day (toISOString is UTC, which flips to tomorrow at 5 PM in MST).
+  const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = localDay();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && localDay() !== today) location.reload(); });
   const dateAdd = (d, n) => L.iso(new Date(new Date(d + 'T12:00:00').getTime() + n * DAY));
   const dow = d => new Date(d + 'T12:00:00').getDay();
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -746,7 +749,7 @@
     const isR = !!x.ing;
     const m = isR ? L.recipePerContainer(x, foodsById()) : x;
     const fav = S.favFoods.includes(x.id);
-    return `<div class="li" data-act="${act}" data-id="${x.id}" data-r="${isR ? 1 : ''}"><div class="grow"><div class="small">${esc(x.name)}</div><div class="tiny muted">${isR ? '1 container' : `${x.serv} ${esc(x.unit)}`} \u00b7 P${r0(m.p)} C${r0(m.c)} F${r0(m.f)}</div></div><span class="num small">${r0(m.cal)}</span><button class="iconbtn sm star ${fav ? 'on' : ''}" data-act="favFood" data-id="${x.id}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites">${ic('star')}</button></div>`;
+    return `<div class="li" data-act="${act}" data-id="${x.id}" data-r="${isR ? 1 : ''}" data-long="foodMenu"><div class="grow"><div class="small">${esc(x.name)}</div><div class="tiny muted">${isR ? '1 container' : `${x.serv} ${esc(x.unit)}`} \u00b7 P${r0(m.p)} C${r0(m.c)} F${r0(m.f)}</div></div><span class="num small">${r0(m.cal)}</span><button class="iconbtn sm star ${fav ? 'on' : ''}" data-act="favFood" data-id="${x.id}" aria-label="${fav ? 'Remove from' : 'Add to'} favorites">${ic('star')}</button></div>`;
   }
   SCREENS['food:recipes'] = () => `
     <div class="card" data-k="recipes-help"><div class="small muted">Put everything in the pot, say how many containers it fills, and log one container at a time.</div><button class="btn" data-act="newRecipe">${ic('plus')}New recipe</button></div>
@@ -1343,7 +1346,8 @@
   const qtyTxt = e => { const x = e.recipeId ? recipesById()[e.recipeId] : foodsById()[e.foodId]; const g = x && gramsPer(x, !!e.recipeId); return g ? r0(e.qty * g) + ' g' : '\u00d7' + r1(e.qty); };
   SHEETS.scan = ({ code }) => `<div class="small">Barcode <b class="num">${esc(code)}</b> isn't in Open Food Facts.</div>
       <label class="fl">What is it? (helps the AI)<input class="f" id="scanName" placeholder="e.g. Kirkland protein bar, chocolate"></label>
-      <button class="btn" data-act="foodAI" data-src="scan">${ic('spark')}Fill in macros with AI</button>
+      <button class="btn" data-act="labelAI">${ic('camera')}Photo of the nutrition label</button>
+      <button class="btn soft" data-act="foodAI" data-src="scan">${ic('spark')}Look it up with AI</button>
       <button class="btn ghost" data-act="newFood">Enter it by hand</button>`;
   SHEETS.newFood = () => `<label class="fl">Name<input class="f" id="nf-name" placeholder="e.g. Mom's chili"></label><div class="grid2"><label class="fl">Serving size<input class="f" id="nf-serv" type="number" value="100"></label><label class="fl">Unit<input class="f" id="nf-unit" value="g"></label>${['cal', 'p', 'c', 'f'].map(k => `<label class="fl">${{ cal: 'Calories', p: 'Protein g', c: 'Carbs g', f: 'Fat g' }[k]}<input class="f num" id="nf-${k}" type="number" value="0"></label>`).join('')}</div><button class="btn block" data-act="saveFood">Save and log</button>`;
   SHEETS.weight = () => `<label class="fl">Today's weight (lb)<input class="f num" id="wt" type="number" step="0.1" value="${S.weights[S.weights.length - 1]?.lb || S.profile.weightLb}"></label><div class="tiny muted">Usually comes from your scale through Health Connect. Typed weights stay in this app.</div><button class="btn block" data-act="saveWeight">Save</button>`;
@@ -1434,6 +1438,7 @@
     if (v === 'eqphoto') return `Identify all fitness equipment visible in this photo. Match against this catalog:\n${EQUIPMENT.map(e => e.name).join(', ')}\nReturn ONLY valid JSON: { "matches": ["equipment_name", ...] }\n\n(Attach the photo when you paste this.)`;
     if (v === 'eqlink') return `Read this product page and tell me what fitness equipment it is. Match it to one of: ${EQUIPMENT.map(e => e.name).join(', ')}.\nLink: <paste link>\nReturn ONLY JSON: {"name":"string","match":"string or null","price":"string or null"}`;
     if (v === 'food') return `Analyze this food photo. Estimate each food's weight in grams and its macros. Return ONLY valid JSON:\n{"foods":[{"name":"string","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}],"total_calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}\n\n(Attach the photo when you paste this.)`;
+    if (v === 'label') { const s = U.sheet || {}; return `Read the Nutrition Facts label in this photo${s.name ? ` (it's ${s.name})` : ''}. Use the label's serving size and its gram weight. If the label only gives a household measure, estimate the grams.\nReturn ONLY valid JSON: {"name":"string","brand":"string or null","serving":"string, e.g. 2 cookies","serving_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"source":"label","confidence":number}\n\n(Attach the photo when you paste this.)`; }
     if (v === 'foodai') { const s = U.sheet || {}; return `Find the nutrition facts for this food${s.code ? ` (barcode ${s.code}, UPC/EAN)` : ''}${s.name ? `: ${s.name}` : ''}. Use the product's label if you know it, otherwise a close typical match, and say which.\nGive values for ONE serving and the serving's weight in grams.\nReturn ONLY valid JSON: {"name":"string","brand":"string or null","serving":"string, e.g. 1 bar","serving_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"source":"label | typical estimate","confidence":number}`; }
     return '';
   }
@@ -1503,6 +1508,13 @@
   A.foodDay = d => { const n = dateAdd(U.foodDate, +d.v); if (n > today) return; U.foodDate = n; render(); };
   A.foodDayPick = () => { U.foodDate = today; render(); };
   A.meal = d => { U.meal = d.v; render(); };
+  // Long-press a food in Recent/Favorites/search: remove it from the lists.
+  A.foodMenu = d => { const x = itemById(d.id); if (!x) return; U.sheet = { kind: 'foodMenu', title: x.name, id: d.id }; render(); };
+  SHEETS.foodMenu = ({ id }) => `${S.recent.includes(id) ? `<button class="btn ghost" data-act="recentDel" data-id="${id}">${ic('trash')}Remove from Recent</button>` : ''}
+      ${S.favFoods.includes(id) ? `<button class="btn ghost" data-act="favFood" data-id="${id}">${ic('star')}Remove from Favorites</button>` : ''}
+      ${S.foods.some(f => f.id === id) && !S.log.some(e => e.foodId === id) && !S.recipes.some(r => r.ing.some(i => i.foodId === id)) ? `<button class="btn ghost" data-act="foodDel" data-id="${id}">${ic('trash')}Delete this food</button>` : `<div class="tiny muted">Logged foods stay in your food list so past days keep their numbers.</div>`}`;
+  A.recentDel = d => { S.recent = S.recent.filter(x => x !== d.id); U.sheet = null; save(); toast('Removed from Recent.'); };
+  A.foodDel = d => { S.foods = S.foods.filter(f => f.id !== d.id); S.recent = S.recent.filter(x => x !== d.id); S.favFoods = S.favFoods.filter(x => x !== d.id); U.sheet = null; save(); toast('Food deleted.'); };
   A.recentTab = d => { U.recentTab = d.v; render(); };
   A.mealToggle = d => { S.mealOpen[d.v] = S.mealOpen[d.v] === false; save(); render(); };
   A.addToMeal = d => { U.meal = d.v; U.focusId = 'foodq'; render(); if ($('#scroll')) $('#scroll').scrollTop = 0; };
@@ -1517,6 +1529,7 @@
   A.qtyMode = d => { U.sheet.gm = d.v === 'g'; render(); };
   A.qtyG = d => { const g = sheetGps(); U.sheet.qty = Math.max(1, Math.round(U.sheet.qty * g) + +d.v) / g; render(); };
   // AI macros for a food by barcode and/or name (scan miss, or no match in search).
+  A.labelAI = () => { U.sheet = { kind: 'bridge', title: 'Read the label', v: 'label', code: U.scanCode, name: ($('#scanName')?.value || '').trim() }; render(); };
   A.foodAI = d => { const name = d.src === 'scan' ? ($('#scanName')?.value || '').trim() : U.q; U.sheet = { kind: 'bridge', title: 'Macros from AI', v: 'foodai', code: d.src === 'scan' ? U.scanCode : '', name }; render(); };
   A.sheetMeal = d => { U.sheet.meal = d.v; render(); };
   A.logFood = () => { const s = U.sheet; S.log.push({ id: 'l' + Date.now(), date: U.foodDate, meal: s.meal, [s.r ? 'recipeId' : 'foodId']: s.id, qty: s.qty }); S.recent = [s.id, ...S.recent.filter(x => x !== s.id)].slice(0, 25); U.sheet = null; U.q = ''; save(); toast('Logged.'); };
@@ -1816,6 +1829,18 @@
 
   // Drag a logged food by its grip to another meal.
   let drag = null;
+  // Long press (about half a second) on anything with data-long.
+  let longT = null, longFired = false, longXY = null;
+  phone.addEventListener('pointerdown', ev => {
+    longFired = false;
+    const el = ev.target.closest('[data-long]'); if (!el || ev.target.closest('button,[data-drag]')) return;
+    longXY = [ev.clientX, ev.clientY]; clearTimeout(longT);
+    longT = setTimeout(() => { longFired = true; navigator.vibrate?.(20); const fn = A[el.dataset.long]; if (fn) fn(el.dataset, el); }, 550);
+  });
+  const longCancel = ev => { if (longT && (!ev || ev.type !== 'pointermove' || Math.hypot(ev.clientX - longXY[0], ev.clientY - longXY[1]) > 10)) { clearTimeout(longT); longT = null; } };
+  ['pointerup', 'pointercancel', 'pointermove'].forEach(t => phone.addEventListener(t, longCancel));
+  phone.addEventListener('click', ev => { if (longFired) { longFired = false; ev.stopImmediatePropagation(); ev.preventDefault(); } }, true);
+  phone.addEventListener('contextmenu', ev => { if (ev.target.closest('[data-long]')) ev.preventDefault(); });
   phone.addEventListener('pointerdown', ev => {
     if (window.__pinMode) return;
     const h = ev.target.closest('[data-drag]'); if (!h) return;
@@ -2015,7 +2040,7 @@
   IN.aiImg = el => { const f = el.files?.[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); const k = Math.min(1, 1024 / Math.max(img.width, img.height)); c.width = img.width * k; c.height = img.height * k; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); U.sheet.img = c.toDataURL('image/jpeg', .8); render(); }; img.src = rd.result; }; rd.readAsDataURL(f); };
   A.aiSend = async () => {
     const s = U.sheet; if (!s || s.busy) return;
-    const needsImg = s.v === 'food' || s.v === 'eqphoto';
+    const needsImg = ['food', 'eqphoto', 'label'].includes(s.v);
     if (needsImg && !s.img) return toast('Add a photo first.');
     s.busy = true; s.err = ''; s.noChanges = false; render();
     try { s.answer = await aiCall(bridgePrompt(s.v).replace(/\n\n\(Attach the photo when you paste this\.\)/, ''), needsImg ? s.img : null); }
@@ -2025,7 +2050,7 @@
   const bridgeBase = SHEETS.bridge;
   SHEETS.bridge = s => {
     if (!aiReady()) return bridgeBase(s);
-    const needsImg = s.v === 'food' || s.v === 'eqphoto';
+    const needsImg = ['food', 'eqphoto', 'label'].includes(s.v);
     return `<div class="small">Sends to <b>${esc(S.ai.model)}</b>${window.HFDev.hasSecret('ai_key') ? '' : ' (no API key saved)'}.</div>
       ${needsImg ? `<label class="btn ghost sm" style="cursor:pointer;align-self:flex-start">${ic('camera')}${s.img ? 'Change photo' : 'Add a photo'}<input type="file" accept="image/*" data-in="aiImg" hidden></label>${s.img ? `<img src="${s.img}" alt="" style="max-height:160px;border-radius:8px;align-self:flex-start">` : ''}` : ''}
       ${extraBox(s)}
@@ -2064,7 +2089,7 @@
   const aiEx = name => { const n = String(name).toLowerCase().replace(/[^a-z0-9 ]/g, ''); return EX.find(e => e.n.toLowerCase().replace(/[^a-z0-9 ]/g, '') === n) || EX.find(e => e.n.toLowerCase().includes(n) || n.includes(e.n.toLowerCase())); };
   const applyRecipe = A.bridgeApply;
   A.bridgeApply = d => {
-    if (d.v === 'recipe' || (!REAL && d.v !== 'foodai')) return applyRecipe(d);
+    if (d.v === 'recipe' || (!REAL && d.v !== 'foodai' && d.v !== 'label')) return applyRecipe(d);
     const j = parseJson($('#bridgeIn').value);
     if (!j) return toast('That answer isn\'t valid JSON.');
     if (d.v === 'food') {
@@ -2074,7 +2099,7 @@
       if (parts.length) parts.forEach((x, k) => add(k, x.name, +x.grams, { cal: x.calories, p: x.protein_g, c: x.carbs_g, f: x.fat_g }));
       else add(0, 'Plate: ' + (j.foods || []).map(x => x.name).slice(0, 3).join(', '), (j.foods || []).reduce((a, x) => a + (+x.grams || 0), 0) || 300, { cal: j.total_calories, p: j.protein_g, c: j.carbs_g, f: j.fat_g });
       toast(`Logged ${parts.length || 1} item${parts.length > 1 ? 's' : ''} to ${U.meal.toLowerCase()}. Tap any to change the grams.`);
-    } else if (d.v === 'foodai') {
+    } else if (d.v === 'foodai' || d.v === 'label') {
       const g = +j.serving_g || 100, s = U.sheet;
       const f = { id: 'c' + Date.now(), name: [j.name || s.name || 'Food', j.brand].filter(Boolean).join(' \u00b7 '), src: 'AI' + (j.source ? ' (' + j.source + ')' : ''), serv: g, unit: 'g', servName: j.serving || '', cal: r1(+j.calories || 0), p: r1(+j.protein_g || 0), c: r1(+j.carbs_g || 0), f: r1(+j.fat_g || 0) };
       if (s.code) { f.barcode = s.code; U.scanCode = null; }

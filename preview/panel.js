@@ -207,6 +207,8 @@
   // ---------- Boot ----------
   try { const s = JSON.parse(localStorage.getItem('hf-design-v2')); if (s) ds = merge(s); } catch (e) {}
   try { notes = JSON.parse(localStorage.getItem('hf-notes')) || []; } catch (e) {}
+  // jake (2026-11-03): old notes are handled (see the changelog), so clear them once. App data is untouched.
+  try { if (localStorage.getItem('hf-notes-reset') !== '1') { notes = []; localStorage.setItem('hf-notes', '[]'); localStorage.setItem('hf-notes-reset', '1'); } } catch (e) {}
   saveState = 'wait';
   apply(); draw();
   const timer = setTimeout(() => { if (!db) setSave('local'); }, 10000);

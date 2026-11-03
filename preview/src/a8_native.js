@@ -155,7 +155,7 @@
   IN.aiImg = el => { const f = el.files?.[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); const k = Math.min(1, 1024 / Math.max(img.width, img.height)); c.width = img.width * k; c.height = img.height * k; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); U.sheet.img = c.toDataURL('image/jpeg', .8); render(); }; img.src = rd.result; }; rd.readAsDataURL(f); };
   A.aiSend = async () => {
     const s = U.sheet; if (!s || s.busy) return;
-    const needsImg = s.v === 'food' || s.v === 'eqphoto';
+    const needsImg = ['food', 'eqphoto', 'label'].includes(s.v);
     if (needsImg && !s.img) return toast('Add a photo first.');
     s.busy = true; s.err = ''; s.noChanges = false; render();
     try { s.answer = await aiCall(bridgePrompt(s.v).replace(/\n\n\(Attach the photo when you paste this\.\)/, ''), needsImg ? s.img : null); }
@@ -165,7 +165,7 @@
   const bridgeBase = SHEETS.bridge;
   SHEETS.bridge = s => {
     if (!aiReady()) return bridgeBase(s);
-    const needsImg = s.v === 'food' || s.v === 'eqphoto';
+    const needsImg = ['food', 'eqphoto', 'label'].includes(s.v);
     return `<div class="small">Sends to <b>${esc(S.ai.model)}</b>${window.HFDev.hasSecret('ai_key') ? '' : ' (no API key saved)'}.</div>
       ${needsImg ? `<label class="btn ghost sm" style="cursor:pointer;align-self:flex-start">${ic('camera')}${s.img ? 'Change photo' : 'Add a photo'}<input type="file" accept="image/*" data-in="aiImg" hidden></label>${s.img ? `<img src="${s.img}" alt="" style="max-height:160px;border-radius:8px;align-self:flex-start">` : ''}` : ''}
       ${extraBox(s)}
@@ -204,7 +204,7 @@
   const aiEx = name => { const n = String(name).toLowerCase().replace(/[^a-z0-9 ]/g, ''); return EX.find(e => e.n.toLowerCase().replace(/[^a-z0-9 ]/g, '') === n) || EX.find(e => e.n.toLowerCase().includes(n) || n.includes(e.n.toLowerCase())); };
   const applyRecipe = A.bridgeApply;
   A.bridgeApply = d => {
-    if (d.v === 'recipe' || (!REAL && d.v !== 'foodai')) return applyRecipe(d);
+    if (d.v === 'recipe' || (!REAL && d.v !== 'foodai' && d.v !== 'label')) return applyRecipe(d);
     const j = parseJson($('#bridgeIn').value);
     if (!j) return toast('That answer isn\'t valid JSON.');
     if (d.v === 'food') {
@@ -214,7 +214,7 @@
       if (parts.length) parts.forEach((x, k) => add(k, x.name, +x.grams, { cal: x.calories, p: x.protein_g, c: x.carbs_g, f: x.fat_g }));
       else add(0, 'Plate: ' + (j.foods || []).map(x => x.name).slice(0, 3).join(', '), (j.foods || []).reduce((a, x) => a + (+x.grams || 0), 0) || 300, { cal: j.total_calories, p: j.protein_g, c: j.carbs_g, f: j.fat_g });
       toast(`Logged ${parts.length || 1} item${parts.length > 1 ? 's' : ''} to ${U.meal.toLowerCase()}. Tap any to change the grams.`);
-    } else if (d.v === 'foodai') {
+    } else if (d.v === 'foodai' || d.v === 'label') {
       const g = +j.serving_g || 100, s = U.sheet;
       const f = { id: 'c' + Date.now(), name: [j.name || s.name || 'Food', j.brand].filter(Boolean).join(' · '), src: 'AI' + (j.source ? ' (' + j.source + ')' : ''), serv: g, unit: 'g', servName: j.serving || '', cal: r1(+j.calories || 0), p: r1(+j.protein_g || 0), c: r1(+j.carbs_g || 0), f: r1(+j.fat_g || 0) };
       if (s.code) { f.barcode = s.code; U.scanCode = null; }
