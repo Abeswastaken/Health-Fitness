@@ -38,4 +38,11 @@ console.log('start',lat&&L.startWeight(lat,me,'endurance'),sw('Barbell_Squat'),s
 assert(lat&&L.startWeight(lat,me,'endurance')<=7.5); assert.equal(sw('Barbell_Squat'),67.5); assert(sw('Alternate_Hammer_Curl')<=12.5);
 assert(L.startWeight(ebi['Barbell_Squat'],{...me,level:'advanced'})>sw('Barbell_Squat'));
 assert.equal(L.startWeight({g:'bands',pm:['chest']},me),null);
+// quick add + usually now + fill suggestion
+assert.equal(L.entryMacros({quick:{cal:600,p:40,c:50,f:20},qty:1},{},{}).cal,600);
+const lg=[];for(let i=1;i<=14;i++){const d=new Date(Date.UTC(2026,10,3)-i*864e5).toISOString().slice(0,10);lg.push({date:d,meal:'Breakfast',foodId:'oats',qty:1});if(i%7===0)lg.push({date:d,meal:'Breakfast',foodId:'eggs',qty:2});}
+lg.push({date:'2026-11-03',meal:'Breakfast',foodId:'eggs',qty:1});
+const un=L.usuallyNow(lg,'Breakfast','2026-11-03');console.log('usually',un.map(x=>x.key+':'+x.n));assert.equal(un[0].key,'oats');assert(!un.some(x=>x.key==='eggs'));
+const fs=L.fillSuggestion({cal:300,p:40},[{id:'a',name:'yogurt',cal:100,p:17},{id:'b',name:'chips',cal:250,p:3},{id:'c',name:'steak',cal:500,p:60}]);assert.equal(fs.id,'a');
+assert.equal(L.fillSuggestion({cal:30,p:5},[{id:'a',cal:20,p:3}]),null);
 console.log('ok');

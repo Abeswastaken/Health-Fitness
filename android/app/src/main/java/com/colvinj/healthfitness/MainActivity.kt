@@ -189,7 +189,13 @@ class MainActivity : ComponentActivity() {
 
     /** Plain web request done natively (no CORS limits). useAiKey adds the stored AI key. */
     private suspend fun http(a: JSONObject): JSONObject = withContext(Dispatchers.IO) {
-        val conn = URL(a.getString("url")).openConnection() as HttpURLConnection
+        // secretQuery {param, secret, fallback}: adds a stored key (e.g. USDA) to the URL without the page ever seeing it.
+        var url = a.getString("url")
+        a.optJSONObject("secretQuery")?.let { q ->
+            val v = prefs.getString(q.getString("secret"), null)?.takeIf { it.isNotBlank() } ?: q.optString("fallback", "")
+            if (v.isNotEmpty()) url += (if ('?' in url) "&" else "?") + q.getString("param") + "=" + java.net.URLEncoder.encode(v, "UTF-8")
+        }
+        val conn = URL(url).openConnection() as HttpURLConnection
         conn.requestMethod = a.optString("method", "GET")
         conn.connectTimeout = 20_000
         conn.readTimeout = 120_000

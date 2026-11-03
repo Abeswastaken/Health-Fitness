@@ -275,6 +275,7 @@
   try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
   if (!S || S.v !== 2) S = freshState();
   S.game = S.game || { items: [], equip: {} };
+  S.meals = S.meals || [];
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 
   // UI-only state (not saved)
@@ -359,7 +360,7 @@
   };
   const dayEntries = d => S.log.filter(e => e.date === d);
   const totalsFor = d => L.dayTotals(dayEntries(d), foodsById(), recipesById());
-  const entryName = e => e.recipeId ? (recipesById()[e.recipeId]?.name || 'Recipe') : (foodsById()[e.foodId]?.name || 'Food');
+  const entryName = e => e.quick ? (e.quick.name || 'Quick add') : e.recipeId ? (recipesById()[e.recipeId]?.name || 'Recipe') : (foodsById()[e.foodId]?.name || 'Food');
   const fmtW = lb => r1(lb) + ' lb';
   const ftIn = n => `${Math.floor(n / 12)}' ${r0(n % 12)}"`;
   const exName = id => EXB[id]?.n || id.replace(/_/g, ' ');
