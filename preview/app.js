@@ -62,6 +62,12 @@
     plate: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/>',
     target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
     scales: '<path d="M12 3v18M5 21h14M4 7h16M4 7l-2 6a3 3 0 0 0 4 0zM20 7l-2 6a3 3 0 0 0 4 0z"/>',
+    dots: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+    syringe: '<path d="M18 2l4 4M20 4l-3 3M17 7l-9.5 9.5-3 .5.5-3L14.5 4.5zM11 7l2 2M8.5 9.5l2 2M3 21l2.5-2.5"/>',
+    vial: '<path d="M9 2h6M10 2v3h4V2M8 5h8v3H8zM9 8v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V8"/><path d="M9 14h6"/>',
+    bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+    book: '<path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4zM20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/>',
+    calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h2M12 11h2M16 11h0M8 15h2M12 15h2M8 18h2M12 18h2M16 15v3"/>',
     anvil: '<path d="M3 8h13a5 5 0 0 0 5-3v6H16l-2 4h3v3H7v-3h3l-2-4H3z"/>',
   };
   const ic = (n, extra = '') => `<svg viewBox="0 0 24 24" ${extra}>${I[n] || ''}</svg>`;
@@ -276,6 +282,8 @@
   if (!S || S.v !== 2) S = freshState();
   S.game = S.game || { items: [], equip: {} };
   S.meals = S.meals || [];
+  if (S.modules.peptides === undefined) S.modules.peptides = true;
+  if (S.restVoice === undefined) S.restVoice = true;
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 
   // UI-only state (not saved)
@@ -398,15 +406,17 @@
   // ---------- Render ----------
   const phone = $('#phone');
   const SUBS = {
-    food: [['log', 'Log'], ['recipes', 'Recipes'], ['mealplan', 'Meal plan'], ['goals', 'Goals']],
+    food: [['log', 'Log'], ['recipes', 'Recipes'], ['mealplan', 'Meal plan']],
     train: [['today', 'Today'], ['week', 'Week'], ['balance', 'Balance'], ['programs', 'Programs'], ['library', 'Exercises'], ['equipment', 'Gear'], ['history', 'History']],
-    progress: [['overview', 'Overview'], ['strength', 'Strength'], ['achievements', 'Adventure']],
+    progress: [['overview', 'Overview'], ['strength', 'Strength'], ['goals', 'Goals'], ['achievements', 'Adventure']],
+    more: [['today', 'Today'], ['vials', 'Vials'], ['calc', 'Calculator'], ['plan', 'Schedules'], ['guide', 'Guide'], ['history', 'History']],
   };
   function render() {
     const m = S.modules;
-    const tabs = [['home', 'Home', 'home'], m.food && ['food', 'Food', 'food'], m.workout && ['train', 'Train', 'train'], ['progress', 'Progress', 'progress']].filter(Boolean);
+    const tabs = [['home', 'Home', 'home'], m.food && ['food', 'Food', 'food'], m.workout && ['train', 'Train', 'train'], ['progress', 'Progress', 'progress'], m.peptides && ['more', 'More', 'dots']].filter(Boolean);
     if (!tabs.find(t => t[0] === S.tab)) S.tab = 'home';
-    const title = { home: 'Today', food: 'Food', train: 'Train', progress: 'Progress' }[S.tab];
+    const title = { home: 'Today', food: 'Food', train: 'Train', progress: 'Progress', more: 'Peptides' }[S.tab];
+    if (U.goalEdit && !(S.tab === 'progress' && U.sub.progress === 'goals' && !U.stack.length)) A.goalCancel(true);
     const subs = SUBS[S.tab];
     const time = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     const prevScroll = $('#scroll')?.scrollTop || 0, prevKey = render.key;
@@ -630,14 +640,16 @@
       macros: () => {
         if (!S.modules.food) return '';
         const g = goalNow(), t = totalsFor(today), net = L.netRemaining(g.cal, t.cal);
-        const burn = S.sessions.filter(s => s.date === today).reduce((a, s) => a + (s.kcal || 0), 0);
+        const todays = S.sessions.filter(s => s.date === today);
+        const burn = todays.reduce((a, s) => a + (s.kcal || 0), 0);
+        const src = todays.length ? (todays.every(s => s.kcalSrc === 'watch') ? 'from your watch' : todays.some(s => s.avgHr) ? 'from heart rate' : 'estimated from time') : '';
         const planned = todaysWorkout().filter(w => !w.done && !w.off).reduce((a, w) => a + (w.kind === 'main' ? L.sessionCalories(S.profile, 50) : 35), 0);
         return `<div class="card" data-k="card-macros" data-act="goFood">
           <h2>Food today<span class="sp"></span><span class="tiny muted">tap to log</span></h2>
           <div class="netline"><span class="num big">${r0(net)}</span><span class="muted small">kcal ${net >= 0 ? 'left' : 'over'} of ${r0(g.cal)}</span></div>
           ${D().macroStyle === 'rings' ? `<div class="ringgrid">${ring('Calories', t.cal, g.cal, 'var(--a-accent)', '')}${ring('Protein', t.p, g.p, 'var(--a-p)')}${ring('Carbs', t.c, g.c, 'var(--a-c)')}${ring('Fat', t.f, g.f, 'var(--a-f)')}</div>` :
           macroBar('Calories', t.cal, g.cal, 'var(--a-accent)', '') + macroBar('Protein', t.p, g.p, 'var(--a-p)') + macroBar('Carbs', t.c, g.c, 'var(--a-c)') + macroBar('Fat', t.f, g.f, 'var(--a-f)')}
-          <div class="row small hr" data-k="burn-line"><span class="grow muted">Workout burn (not counted in net)</span><span class="num">${burn ? r0(burn) + ' kcal' : planned ? '~' + planned + ' kcal planned' : '0 kcal'}</span></div>
+          <div class="row small hr" data-k="burn-line"><span class="grow muted">Workout burn${src ? ', ' + src : ''} (not counted in net)</span><span class="num">${burn ? r0(burn) + ' kcal' : planned ? '~' + planned + ' kcal planned' : '0 kcal'}</span></div>
         </div>`;
       },
       streak: () => {
@@ -720,11 +732,11 @@
         <div style="position:absolute;top:10px;left:12px;font-size:12px;opacity:.85">Point at a barcode</div>
         <div class="vf-actions"><button class="btn sm" data-act="simScan">${ic('scan')}Simulate scan</button><button class="btn sm" data-act="photoAI" aria-label="Photo of plate">${ic('camera')}Plate photo</button></div></div>` : ''}
       <div class="chips" data-k="meal-chips">${MEALS.map(m => `<button class="chip ${U.meal === m ? 'on' : ''}" data-act="meal" data-v="${m}">${m}</button>`).join('')}</div>
-      <div class="row" data-k="food-search"><input class="f" id="foodq" placeholder="Search foods, meals, barcodes" value="${esc(U.q)}" data-in="foodq" autocomplete="off"><button class="btn sm ghost" data-act="quickAdd" aria-label="Quick add numbers">${ic('bolt')}Quick</button><button class="btn sm ghost" data-act="newFood">${ic('plus')}Custom</button></div>
+      <div class="row" data-k="food-search"><input class="f" id="foodq" placeholder="Search foods, meals, barcodes" value="${esc(U.q)}" data-in="foodq" autocomplete="off"><button class="btn sm ghost" data-act="quickAdd" aria-label="Add your own food or numbers">${ic('plus')}Add your own</button></div>
       ${res ? `<div class="card" data-k="search-results">${res.length ? groupResults(res) : `<div class="muted small">No match in your foods. Search online or ask the AI without leaving the app:</div>`}${offBlock()}</div>` : `
       ${usualBlock(d)}
-      <div class="card" data-k="recent-foods"><div class="seg" role="tablist"><button class="${U.recentTab === 'recent' ? 'on' : ''}" data-act="recentTab" data-v="recent">Recent</button><button class="${U.recentTab === 'fav' ? 'on' : ''}" data-act="recentTab" data-v="fav">${ic('star', 'class="inl"')}Favorites</button><button class="${U.recentTab === 'meals' ? 'on' : ''}" data-act="recentTab" data-v="meals">Meals</button></div>
-        ${U.recentTab === 'meals' ? `<div class="list scroll5">${S.meals.map(savedMealRow).join('') || '<div class="muted small" style="padding:10px 0">No saved meals yet. Open a meal\'s menu (\u22ef) and tap "Save as a meal".</div>'}</div><div class="tiny muted">${S.meals.length} saved meals \u00b7 logs to ${U.meal}</div>` : `
+      <div class="card tight" data-k="recent-foods"><div class="row"><div class="seg grow" role="tablist"><button class="${U.recentTab === 'recent' ? 'on' : ''}" data-act="recentTab" data-v="recent">Recent</button><button class="${U.recentTab === 'fav' ? 'on' : ''}" data-act="recentTab" data-v="fav">${ic('star', 'class="inl"')}Favorites</button><button class="${U.recentTab === 'meals' ? 'on' : ''}" data-act="recentTab" data-v="meals">Meals</button></div><button class="iconbtn sm" data-act="recentFold" aria-label="${S.recentClosed ? 'Show' : 'Hide'} list">${chev(!S.recentClosed)}</button></div>
+        ${S.recentClosed ? '' : U.recentTab === 'meals' ? `<div class="list scroll5">${S.meals.map(savedMealRow).join('') || '<div class="muted small" style="padding:10px 0">No saved meals yet. Open a meal\'s menu (\u22ef) and tap "Save as a meal".</div>'}</div><div class="tiny muted">${S.meals.length} saved meals \u00b7 logs to ${U.meal}</div>` : `
         <div class="list scroll5">${listIds.map(itemById).filter(Boolean).map(x => foodRow(x)).join('') || '<div class="muted small" style="padding:10px 0">Tap the star on any food to add it here.</div>'}</div>
         <div class="tiny muted">${U.recentTab === 'fav' ? listIds.length + ' favorites' : 'Last ' + Math.min(25, listIds.length) + ' foods'} \u00b7 hold a food for more \u00b7 logs to ${U.meal}</div>`}</div>`}
       ${MEALS.map(m => {
@@ -739,7 +751,10 @@
   };
   function searchFoods(q, opts = {}) {
     const s = q.toLowerCase().trim();
-    const fuzzy = (name) => { const n = name.toLowerCase(); if (n.includes(s)) return 2; let i = 0; for (const ch of n) if (ch === s[i]) i++; return i >= s.length - 1 && s.length > 2 ? 1 : 0; };
+    // Whole text anywhere = strong match. Otherwise every typed word has to start a word in the name
+    // ("chick bre" finds "Chicken breast"). Loose letter-by-letter matching let "mango" hit long product names.
+    const words = s.split(/\s+/).filter(Boolean);
+    const fuzzy = (name) => { const n = name.toLowerCase(); if (n.includes(s)) return 2; const nw = n.split(/[^a-z0-9%]+/).filter(Boolean); return words.length && words.every(w => nw.some(x => x.startsWith(w))) ? 1 : 0; };
     const out = [];
     for (const r of S.recipes) { const sc = fuzzy(r.name); if (sc) out.push({ type: 'Recipes', item: r, sc: sc + 1 }); }
     for (const m of S.meals || []) { const sc = fuzzy(m.name); if (sc && !opts.noMeals) out.push({ type: 'Saved meals', item: m, sc: sc + 2 }); }
@@ -777,10 +792,13 @@
       ${MEALS.map(m => { const ps = planned.filter(p => p.meal === m); return `<div class="card tight" data-k="plan-${m.toLowerCase()}"><h2>${m}<span class="sp"></span><button class="btn sm ghost" data-act="planAdd" data-v="${m}">${ic('plus')}Add</button></h2>
         ${ps.map(p => { const done = logged.some(l => (l.recipeId || l.foodId) === (p.recipeId || p.foodId)); const mm = L.entryMacros(p, foodsById(), recipesById()); return `<div class="li tight"><div class="grow" data-act="editPlan" data-id="${p.id}"><div class="small">${esc(entryName(p))} <span class="muted">${qtyTxt(p)}</span></div><div class="tiny muted num">${r0(mm.cal)} kcal \u00b7 P${r0(mm.p)}</div></div>${done ? '<span class="badge good">Eaten</span>' : U.mpDay <= today ? `<button class="btn sm ghost" data-act="logPlanned" data-id="${p.id}">Log it</button>` : ''}<button class="iconbtn sm" data-act="unplan" data-id="${p.id}" aria-label="Remove">${ic('close')}</button></div>`; }).join('') || '<div class="tiny muted">Nothing planned.</div>'}</div>`; }).join('')}`;
   };
-  SCREENS['food:goals'] = () => {
+  SCREENS['progress:goals'] = () => {
     const p = S.profile, g = goalNow(), tdee = L.tdee(p);
     const m = S.goal.method;
-    return `<div class="card" data-k="goal-method"><h2>How to set your target</h2>
+    // Locked until "Edit goals" so a stray tap can't change them; Save or Cancel ends editing.
+    const lock = !U.goalEdit;
+    return `<div class="card tight" data-k="goal-lock"><div class="row">${lock ? `<span class="grow small muted">Calories ${r0(g.cal)} \u00b7 P${r0(g.p)} C${r0(g.c)} F${r0(g.f)}</span><button class="btn sm" data-act="goalEdit">${ic('edit')}Edit goals</button>` : `<span class="grow small"><b>Editing.</b> Nothing changes until you save.</span><button class="btn sm ghost" data-act="goalCancel">Cancel</button><button class="btn sm" data-act="goalSave">Save</button>`}</div></div>
+      <div class="${lock ? 'locked' : ''}"><div class="card" data-k="goal-method"><h2>How to set your target</h2>
         <div class="chips">${[['manual', 'Type it in'], ['tdee', 'Maintenance (TDEE)'], ['goal', 'Goal-based'], ['ai', 'Ask AI']].map(([k, l]) => `<button class="chip ${m === k ? 'on' : ''}" data-act="goalMethod" data-v="${k}">${l}</button>`).join('')}</div>
         ${m === 'manual' ? `<div class="grid2">${['cal', 'p', 'c', 'f'].map(k => `<label class="fl">${{ cal: 'Calories', p: 'Protein g', c: 'Carbs g', f: 'Fat g' }[k]}<input class="f num" type="number" value="${S.goal[k] || g[k]}" data-in="goal" data-k2="${k}"></label>`).join('')}</div>` : ''}
         ${m === 'tdee' ? `<div class="small">Resting burn <b class="num">${r0(L.bmr(p))}</b> \u00d7 activity ${L.ACTIVITY[p.activity]} = <b class="num">${r0(tdee)}</b> kcal to stay the same.</div>` : ''}
@@ -793,7 +811,7 @@
       <div class="card" data-k="presets"><h2>Diet preset</h2><div class="chips">${Object.keys(L.PRESETS).map(k => `<button class="chip ${S.goal.preset === k ? 'on' : ''}" data-act="preset" data-v="${k}">${k}</button>`).join('')}</div>
         <div class="tiny muted">${S.goal.preset === 'Keto' ? 'Keto caps carbs at 30 g.' : 'Splits calories into protein, carbs and fat. Every number stays editable.'}</div>
         ${macroBar('Protein', g.p, g.p, 'var(--a-p)')}${macroBar('Carbs', g.c, g.c, 'var(--a-c)')}${macroBar('Fat', g.f, g.f, 'var(--a-f)')}
-        <div class="small muted">Protein ${r1(g.p / p.weightLb)} g per lb of body weight.</div></div>`;
+        <div class="small muted">Protein ${r1(g.p / p.weightLb)} g per lb of body weight.</div></div></div>`;
   };
 
   // ----- Train -----
@@ -1139,7 +1157,9 @@
   FULL.settings = () => `${bar('Settings')}<div class="scroll">
     <div class="card" data-k="set-modules"><h2>Tracking</h2><div class="small muted">Turning a side off hides it everywhere: tabs, widgets, checks and AI. Your data stays.</div>
       <div class="row"><span class="grow">Food and macros</span>${sw(S.modules.food, 'modFood')}</div>
-      <div class="row"><span class="grow">Workouts</span>${sw(S.modules.workout, 'modWorkout')}</div></div>
+      <div class="row"><span class="grow">Workouts</span>${sw(S.modules.workout, 'modWorkout')}</div>
+      <div class="row"><span class="grow">Peptides <span class="tiny muted">(under More)</span></span>${sw(S.modules.peptides, 'modPep')}</div>
+      <div class="row"><span class="grow">Spoken rest timer <span class="tiny muted">(time left every 30 s, then 10, 3, 2, 1)</span></span>${sw(S.restVoice, 'restVoice')}</div></div>
     <div class="card" data-k="set-profile"><h2>You</h2><div class="grid2">
       <label class="fl">Age<input class="f num" type="number" value="${S.profile.age}" data-in="prof" data-k2="age"></label>
       ${heightInputs(S.profile)}
@@ -1162,6 +1182,7 @@
     ${REAL ? `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Samsung Health shares your scale and watch through Health Connect. Weigh-ins you add by hand stay in this app only.</div>
       ${S.hc.connected ? `${[['weight', 'Read body weight'], ['hr', 'Read heart rate (workout calories)'], ['rhr', 'Read resting heart rate'], ['sleep', 'Read sleep']].map(([k, l]) => `<div class="row small"><span class="grow">${l}${(S.hc.granted || []).includes(k) ? '' : ' <span class="muted">(not allowed)</span>'}</span>${sw(S.hc.read[k], 'hcRead', `data-k2="${k}"`)}</div>`).join('')}
       <div class="row small"><span class="grow">Write workouts${(S.hc.granted || []).includes('exercise') ? '' : ' <span class="muted">(not allowed)</span>'}</span>${sw(S.hc.write.sessions, 'hcWrite')}</div>
+      <div class="row small"><span class="grow">Read the watch's active calories (live workout burn)</span><span class="tiny ${(S.hc.granted || []).includes('caloriesRead') ? '' : 'muted'}">${(S.hc.granted || []).includes('caloriesRead') ? 'Allowed' : 'Not allowed yet: tap Permissions'}</span></div>
       <label class="fl">When the watch also logged the same workout<select class="f" data-in="hcConflict">${[['skip', 'Keep the watch\'s, don\'t send mine (recommended)'], ['app', 'Send mine too']].map(([k, l]) => `<option value="${k}" ${S.hc.conflict === k || (k === 'skip' && S.hc.conflict !== 'app') ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <div class="row"><button class="btn sm ghost" data-act="hcSyncNow">Sync now</button><button class="btn sm ghost" data-act="hcConnect">Permissions</button><button class="btn sm ghost" data-act="hcOpen">Open Health Connect</button></div>` : `<button class="btn" data-act="hcConnect">Connect Health Connect</button>`}</div>` : `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Samsung Health shares your scale and watch data through Health Connect.</div>
       ${[['weight', 'Read body weight'], ['hr', 'Read heart rate'], ['rhr', 'Read resting heart rate'], ['sleep', 'Read sleep']].map(([k, l]) => `<div class="row small"><span class="grow">${l}</span>${sw(S.hc.read[k], 'hcRead', `data-k2="${k}"`)}</div>`).join('')}
@@ -1236,12 +1257,14 @@
     const rest = U.rest ? Math.max(0, Math.ceil((U.rest.until - Date.now()) / 1000)) : 0;
     const cur = st.sets[st.idx].findIndex(s => !s.done);
     const allDone = st.sets.every(ss => ss.every(s => s.done));
-    return `<div class="appbar"><button class="iconbtn" data-act="quitLog" aria-label="Close">${ic('close')}</button><h1 class="h1sm">${esc(st.name)}</h1><span class="small muted num">${elapsed} min</span></div>
-      ${rest > 0 ? `<div class="restbar" data-k="rest-timer"><span class="small">Rest</span><b class="num">${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, '0')}</b><span class="grow"></span><button class="btn ghost sm" data-act="restAdd">+30 s</button><button class="btn sm" data-act="restSkip">Skip</button></div>` : ''}
+    const lk = liveKcal(st);
+    return `<div class="appbar"><button class="iconbtn" data-act="quitLog" aria-label="Close">${ic('close')}</button><h1 class="h1sm">${esc(st.name)}</h1><span class="small muted num" data-k="live-burn" title="${lk.src}">${elapsed} min \u00b7 ${r0(lk.kcal)} kcal</span></div>
+      ${rest > 0 ? `<div class="restbar" data-k="rest-timer"><span class="small">Rest</span><b class="num">${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, '0')}</b><span class="grow"></span><button class="iconbtn sm" data-act="restVoice" aria-label="${S.restVoice ? 'Mute' : 'Turn on'} the spoken countdown">${ic(S.restVoice ? 'bell' : 'minus')}</button><button class="btn ghost sm" data-act="restAdd">+30 s</button><button class="btn sm" data-act="restSkip">Skip</button></div>` : ''}
+      <div class="row tiny" data-k="logger-tools" style="padding:0 14px 4px"><span class="grow muted">${st.order ? 'Use the arrows to move exercises.' : ''}</span>${st.order ? `${st.kind === 'main' ? '<button class="btn sm ghost" data-act="logOrderSave">Save order to plan</button>' : ''}<button class="btn sm" data-act="logOrder">Done</button>` : `<button class="btn sm ghost" data-act="logFoldAll">${ic('up')}Collapse all</button><button class="btn sm ghost" data-act="logOrder">${ic('swap')}Reorder</button>`}</div>
       <div class="scroll" data-k="logger-list">
       ${st.items.map((it, k) => {
-        const sets = st.sets[k], doneN = sets.filter(s => s.done).length, open = k === st.idx, sch = schemeOf(it);
-        const head = `<div class="acc-h" data-act="logGo" data-i="${k}"><span class="accn ${doneN === sets.length ? 'done' : open ? 'cur' : ''}">${doneN === sets.length ? ic('check') : k + 1}</span><div class="grow"><b class="small">${esc(exName(it.ex))}</b><div class="tiny muted num">${targetLine(it)}</div></div><span class="tiny num muted">${doneN}/${sets.length}</span>${chev(open)}</div>`;
+        const sets = st.sets[k], doneN = sets.filter(s => s.done).length, open = k === st.idx && !st.fold && !st.order, sch = schemeOf(it);
+        const head = `<div class="acc-h" data-act="${st.order ? 'noop' : 'logGo'}" data-i="${k}"><span class="accn ${doneN === sets.length ? 'done' : k === st.idx ? 'cur' : ''}">${doneN === sets.length ? ic('check') : k + 1}</span><div class="grow"><b class="small">${esc(exName(it.ex))}</b><div class="tiny muted num">${targetLine(it)}</div></div>${st.order ? `<button class="iconbtn sm" data-act="logMove" data-i="${k}" data-v="-1" aria-label="Move up" ${k ? '' : 'disabled style="opacity:.3"'}>${ic('up')}</button><button class="iconbtn sm" data-act="logMove" data-i="${k}" data-v="1" aria-label="Move down" ${k < st.items.length - 1 ? '' : 'disabled style="opacity:.3"'}>${ic('down')}</button>` : `<span class="tiny num muted">${doneN}/${sets.length}</span>${chev(open)}`}</div>`;
         if (!open) return `<div class="acc" data-k="logger-ex">${head}</div>`;
         const c = sets.findIndex(s => !s.done);
         return `<div class="acc open" data-k="logger-ex">${head}
@@ -1523,7 +1546,12 @@
       ${S.foods.some(f => f.id === id) && !S.log.some(e => e.foodId === id) && !S.recipes.some(r => r.ing.some(i => i.foodId === id)) ? `<button class="btn ghost" data-act="foodDel" data-id="${id}">${ic('trash')}Delete this food</button>` : `<div class="tiny muted">Logged foods stay in your food list so past days keep their numbers.</div>`}`;
   A.recentDel = d => { S.recent = S.recent.filter(x => x !== d.id); U.sheet = null; save(); toast('Removed from Recent.'); };
   A.foodDel = d => { S.foods = S.foods.filter(f => f.id !== d.id); S.recent = S.recent.filter(x => x !== d.id); S.favFoods = S.favFoods.filter(x => x !== d.id); U.sheet = null; save(); toast('Food deleted.'); };
-  A.recentTab = d => { U.recentTab = d.v; render(); };
+  A.recentTab = d => { U.recentTab = d.v; if (S.recentClosed) { S.recentClosed = false; save(); } render(); };
+  A.recentFold = () => { S.recentClosed = !S.recentClosed; save(); render(); };
+  // Goals: edits go live on screen but only stick after Save (Cancel puts the old ones back).
+  A.goalEdit = () => { U.goalEdit = JSON.parse(JSON.stringify({ goal: S.goal, profile: S.profile })); render(); };
+  A.goalSave = () => { U.goalEdit = null; save(); toast('Goals saved.'); };
+  A.goalCancel = quiet => { if (!U.goalEdit) return; S.goal = U.goalEdit.goal; S.profile = U.goalEdit.profile; U.goalEdit = null; save(); if (quiet !== true) render(); };
   A.mealToggle = d => { S.mealOpen[d.v] = S.mealOpen[d.v] === false; save(); render(); };
   A.addToMeal = d => { U.meal = d.v; U.focusId = 'foodq'; render(); if ($('#scroll')) $('#scroll').scrollTop = 0; };
   A.favFood = d => { const i = S.favFoods.indexOf(d.id); if (i >= 0) S.favFoods.splice(i, 1); else S.favFoods.unshift(d.id); save(); render(); };
@@ -1730,10 +1758,65 @@
   A.startWorkout = d => {
     const w = todaysWorkout()[+d.i];
     if (!w || !w.items.length) return;
-    U.log = { kind: w.kind, name: w.name, items: w.items.map(it => ({ ...it })), idx: 0, sets: w.items.map(it => [...Array(it.sets)].map(() => newSet(it.ex, it.scheme))), start: Date.now() };
-    U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; render();
+    U.log = { kind: w.kind, name: w.name, wd: dow(today), items: w.items.map(it => ({ ...it })), idx: 0, sets: w.items.map(it => [...Array(it.sets)].map(() => newSet(it.ex, it.scheme))), start: Date.now() };
+    U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; render(); logLive();
   };
-  A.logGo = d => { U.log.idx = +d.i; render(); };
+  // Tap the open exercise to fold it; tap another to open that one.
+  A.logGo = d => { const st = U.log; if (+d.i === st.idx) st.fold = !st.fold; else { st.idx = +d.i; st.fold = false; } render(); };
+  A.logFoldAll = () => { U.log.fold = true; render(); };
+  A.logOrder = () => { U.log.order = !U.log.order; render(); };
+  A.logMove = (d, el, ev) => {
+    ev?.stopPropagation?.();
+    const st = U.log, i = +d.i, j = i + +d.v; if (j < 0 || j >= st.items.length) return;
+    [st.items[i], st.items[j]] = [st.items[j], st.items[i]];
+    [st.sets[i], st.sets[j]] = [st.sets[j], st.sets[i]];
+    if (st.idx === i) st.idx = j; else if (st.idx === j) st.idx = i;
+    render();
+  };
+  // Today's order becomes this weekday's order in the plan (exercises added today come along).
+  A.logOrderSave = () => { const st = U.log; if (!S.planWeek || st.wd == null) return; S.planWeek[st.wd] = st.items.map(it => ({ ...it })); save(); st.order = false; toast('Saved this order to your ' + DAYS[st.wd] + ' plan.'); };
+  A.restVoice = () => { S.restVoice = !S.restVoice; save(); if (!S.restVoice) voiceStop(); else if (U.rest) voiceStart(); render(); };
+  A.modPep = () => { S.modules.peptides = !S.modules.peptides; save(); render(); };
+
+  // Spoken rest countdown. The installed app does it natively (keeps time with the screen off);
+  // the preview uses the browser's voice.
+  function voiceStart() {
+    if (!S.restVoice || !U.rest) return;
+    const secs = Math.max(0, Math.round((U.rest.until - Date.now()) / 1000));
+    if (REAL && window.HFDev.restStart) return window.HFDev.restStart(secs);
+    U.rest.cues = {};
+  }
+  function voiceStop() { if (REAL && window.HFDev.restStop) window.HFDev.restStop(); if (U.rest) U.rest.cues = null; }
+  function voiceTick(r) {
+    if (REAL || !S.restVoice || !U.rest || !U.rest.cues || !window.speechSynthesis) return;
+    const c = U.rest.cues; if (c[r]) return;
+    const txt = r === 0 ? 'Go' : r <= 3 ? String(r) : r === 10 ? '10 seconds' : r % 30 === 0 && r < U.rest.total ? (r <= 90 ? r + ' seconds remaining' : r % 60 ? Math.floor(r / 60) + ' minutes ' + (r % 60) + ' seconds remaining' : r / 60 + ' minutes remaining') : '';
+    if (!txt) return; c[r] = 1;
+    try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(txt)); } catch (e) {}
+  }
+
+  // Live burn while you lift: the watch's calories if Health Connect has them, else heart rate, else time.
+  function liveKcal(st) {
+    const min = Math.max(0, (Date.now() - st.start) / 60000);
+    if (st.watchKcal > 0) return { kcal: st.watchKcal, src: 'From your watch' };
+    if (st.liveHr) return { kcal: L.sessionCalories(S.profile, min, st.liveHr), src: 'From your heart rate (' + st.liveHr + ' bpm avg)' };
+    return { kcal: L.sessionCalories(S.profile, min, null, st.kind === 'morning' ? L.MET.light : L.MET.strength), src: 'Estimated from time' };
+  }
+  function logLive() {
+    clearInterval(logLive.t);
+    if (REAL && window.HFDev.keepScreen) window.HFDev.keepScreen(true);
+    const poll = () => {
+      const st = U.log; if (!st) { clearInterval(logLive.t); if (REAL && window.HFDev.keepScreen) window.HFDev.keepScreen(false); return; }
+      if (REAL && S.hc.connected) {
+        const a = { start: new Date(st.start).toISOString(), end: new Date().toISOString() };
+        native('hcHeartRate', a).then(r => { if (r.avg && U.log === st) st.liveHr = r.avg; });
+        native('hcCalories', a).then(r => { if (r.kcal && U.log === st) st.watchKcal = r.kcal; });
+      }
+      const el = document.querySelector('[data-k="live-burn"]');
+      if (el && topFull()?.kind === 'logger') { const lk = liveKcal(st); el.textContent = `${Math.max(0, Math.round((Date.now() - st.start) / 60000))} min \u00b7 ${r0(lk.kcal)} kcal`; el.title = lk.src; }
+    };
+    logLive.t = setInterval(poll, 30000);
+  }
   A.setFail = d => { const s = U.log.sets[U.log.idx][+d.i]; s.fail = !s.fail; render(); };
   A.setPain = d => { const s = U.log.sets[U.log.idx][+d.i]; s.pain = !s.pain; render(); };
   A.addSet = () => { const ss = U.log.sets[U.log.idx]; const l = ss[ss.length - 1]; ss.push({ ...l, done: false, fail: false, pain: false, drop: false }); render(); };
@@ -1745,16 +1828,18 @@
     if (st.sets.every(x => x.every(s => s.done))) return A.finishLog();
     if (cur === -1) { const nx = st.sets.findIndex(x => x.some(s => !s.done)); st.idx = nx; U.rest = null; return render(); }
     ss[cur].done = true;
-    U.rest = { until: Date.now() + (st.kind === 'morning' ? 20 : schemeOf(st.items[st.idx]).rest) * 1000 };
+    const secs = st.kind === 'morning' ? 20 : schemeOf(st.items[st.idx]).rest;
+    U.rest = { until: Date.now() + secs * 1000, total: secs };
+    st.fold = false;
     if (cur === ss.length - 1) { const nx = st.sets.findIndex(x => x.some(s => !s.done)); if (nx >= 0) st.idx = nx; }
-    render(); tickRest();
+    render(); voiceStart(); tickRest();
   };
-  function tickRest() { clearInterval(tickRest.t); tickRest.t = setInterval(() => { if (!U.rest || Date.now() > U.rest.until) { clearInterval(tickRest.t); U.rest = null; } if (topFull()?.kind === 'logger') { const el = $('.restbar b'); if (el && U.rest) { const r = Math.max(0, Math.ceil((U.rest.until - Date.now()) / 1000)); el.textContent = `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`; } else render(); } }, 1000); }
-  A.restAdd = () => { if (U.rest) U.rest.until += 30000; render(); };
-  A.restSkip = () => { U.rest = null; render(); };
-  A.quitLog = () => { U.stack = []; U.log = null; U.rest = null; toast('Workout discarded.'); };
+  function tickRest() { clearInterval(tickRest.t); tickRest.t = setInterval(() => { const r = U.rest ? Math.max(0, Math.ceil((U.rest.until - Date.now()) / 1000)) : 0; if (U.rest) voiceTick(r); if (!U.rest || Date.now() > U.rest.until) { clearInterval(tickRest.t); U.rest = null; } if (topFull()?.kind === 'logger') { const el = $('.restbar b'); if (el && U.rest) { el.textContent = `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`; } else render(); } }, 1000); }
+  A.restAdd = () => { if (U.rest) { U.rest.until += 30000; U.rest.total = Math.round((U.rest.until - Date.now()) / 1000); voiceStart(); } render(); };
+  A.restSkip = () => { voiceStop(); U.rest = null; render(); };
+  A.quitLog = () => { voiceStop(); U.stack = []; U.log = null; U.rest = null; toast('Workout discarded.'); };
   A.finishLog = () => {
-    const st = U.log; U.rest = null;
+    const st = U.log; voiceStop(); U.rest = null;
     const before = game();
     const min = Math.max(1, Math.round((Date.now() - st.start) / 60000));
     const sets = [], recs = [], prs = [];
@@ -1773,8 +1858,8 @@
       recs.push({ ex: it.ex, name: exName(it.ex), rec, sets: done, pr });
     });
     const avgHr = !REAL && S.hc.read.hr ? 112 + Math.round(Math.random() * 18) : null;
-    const kcal = L.sessionCalories(S.profile, min, st.kind === 'morning' ? null : avgHr, st.kind === 'morning' ? L.MET.light : L.MET.strength);
-    S.sessions.push({ id: 's' + Date.now(), date: today, morning: st.kind === 'morning', start: new Date().toISOString(), min, avgHr, kcal, sets });
+    const kcal = st.watchKcal > 0 ? r0(st.watchKcal) : L.sessionCalories(S.profile, min, st.kind === 'morning' ? null : (st.liveHr || avgHr), st.kind === 'morning' ? L.MET.light : L.MET.strength);
+    S.sessions.push({ id: 's' + Date.now(), date: today, morning: st.kind === 'morning', start: new Date().toISOString(), min, avgHr: st.liveHr || avgHr, kcal, kcalSrc: st.watchKcal > 0 ? 'watch' : (st.liveHr || avgHr) ? 'hr' : 'time', sets });
     U.lastPrs = prs; gameCache = null;
     const after = game();
     save();
@@ -1929,7 +2014,10 @@
   };
 
   // ----- Online food search (Open Food Facts), right inside the food log -----
-  async function getJson(url) {
+  // Gives up after ms so a slow service can't leave "Searching\u2026" up forever.
+  const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(what + ' took too long')), ms))]);
+  async function getJson(url, ms = 12000) { return withTimeout(getJson0(url), ms, 'Open Food Facts'); }
+  async function getJson0(url) {
     if (REAL) { const r = await native('http', { url }); if (r.error) throw new Error(r.error); if (r.status < 200 || r.status > 299) throw new Error('HTTP ' + r.status); return JSON.parse(r.body || 'null'); }
     const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json();
   }
@@ -1937,23 +2025,25 @@
     const q = (U.q || '').trim(); if (!q) return;
     U.off = { q, busy: true, items: [] }; render();
     const fields = 'code,product_name,brands,nutriments,serving_size,serving_quantity';
-    let items = [], err = '';
-    try {
-      const j = await getJson(`https://search.openfoodfacts.org/search?q=${encodeURIComponent(q)}&page_size=20&fields=${fields}`);
-      items = (j && j.hits) || [];
-    } catch (e) { err = e.message; }
-    if (!items.length) {
-      try {
-        const j = await getJson(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&json=1&page_size=20&fields=${fields}`);
-        items = (j && j.products) || []; err = '';
-      } catch (e) { err = err || e.message; }
-    }
-    items = items.filter(p => p.code && p.product_name && p.nutriments && (p.nutriments['energy-kcal_100g'] != null || p.nutriments['energy-kcal_serving'] != null)).map(p => offFood(p.code, p));
-    if (U.off?.q !== q) return;
-    U.off = { q, busy: false, items, err }; render();
+    // Open Food Facts' two searches and USDA's branded foods run at once. Results show as each one answers;
+    // a slow one gives up after its time limit instead of leaving "Searching\u2026" up.
+    const ok = p => p && p.code && p.product_name && p.nutriments && (p.nutriments['energy-kcal_100g'] != null || p.nutriments['energy-kcal_serving'] != null);
+    const got = { a: [], b: [], br: [] }, errs = [];
+    let left = 3;
+    const show = () => {
+      if (U.off?.q !== q) return;
+      const seen = new Set();
+      const off = [...got.a, ...got.b].filter(p => ok(p) && !seen.has(p.code) && seen.add(p.code)).map(p => offFood(p.code, p));
+      const items = [...off, ...got.br];
+      U.off = { q, busy: left > 0 && !items.length, more: left > 0, items, err: !items.length && !left ? errs[0] || '' : '' }; render();
+    };
+    const run = (k, pr) => pr.then(v => { got[k] = v || []; }, e => { errs.push(e.message); }).finally(() => { left--; show(); });
+    run('a', getJson(`https://search.openfoodfacts.org/search?q=${encodeURIComponent(q)}&page_size=20&fields=${fields}`).then(j => (j && j.hits) || []));
+    run('b', getJson(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&json=1&page_size=20&fields=${fields}`, 15000).then(j => (j && j.products) || []));
+    run('br', window.usdaBranded ? withTimeout(window.usdaBranded(q), 12000, 'USDA') : Promise.resolve([]));
   };
   A.offPick = d => {
-    const f = U.off?.items?.[+d.i]; if (!f) return;
+    const f = (d.id && U.off?.items?.find(x => x.id === d.id)) || U.off?.items?.[+d.i]; if (!f) return;
     if (!S.foods.some(x => x.id === f.id)) { S.foods.push(f); save(); }
     if (topFull()?.kind === 'ingPick') return A.ingAdd({ id: f.id });
     U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; render();
@@ -1963,7 +2053,7 @@
     const o = U.off && U.off.q === (U.q || '').trim() ? U.off : null;
     const btns = `<div class="row wrap"><button class="btn sm" data-act="offSearch" ${o?.busy ? 'disabled' : ''}>${ic('search')}${o?.busy ? 'Searching\u2026' : 'Search online'}</button><button class="btn sm soft" data-act="foodAI" data-src="search">${ic('spark')}Ask AI for macros</button><button class="btn sm ghost" data-act="newFood">${ic('plus')}By hand</button></div>`;
     if (!o || o.busy) return btns;
-    return `${o.items.length ? `<div class="tiny muted caps">Open Food Facts</div><div class="list">${o.items.map((f, i) => `<div class="li" data-act="offPick" data-i="${i}"><div class="grow"><div class="small">${esc(f.name)}</div><div class="tiny muted num">${r0(f.cal)} kcal \u00b7 P${r0(f.p)} C${r0(f.c)} F${r0(f.f)} per ${f.servName ? esc(f.servName) : r0(f.serv) + ' g'}</div></div></div>`).join('')}</div>` : `<div class="small muted">${o.err ? 'Online search failed: ' + esc(o.err) : 'Nothing online for "' + esc(o.q) + '".'} Try fewer words, or ask the AI.</div>`}${btns}`;
+    return `${o.items.length ? `<div class="tiny muted caps">Packaged foods (Open Food Facts, USDA)${o.more ? ' \u00b7 still checking\u2026' : ''}</div><div class="list">${o.items.map((f, i) => `<div class="li" data-act="offPick" data-i="${i}" data-id="${esc(f.id)}"><div class="grow"><div class="small">${esc(f.name)}</div><div class="tiny muted num">${r0(f.cal)} kcal \u00b7 P${r0(f.p)} C${r0(f.c)} F${r0(f.f)} per ${f.servName ? esc(f.servName) : r0(f.serv) + ' g'}</div></div></div>`).join('')}</div>` : `<div class="small muted">${o.err ? 'Online search failed: ' + esc(o.err) : 'Nothing online for "' + esc(o.q) + '".'} Try fewer words, or ask the AI.</div>`}${btns}`;
   };
 
   // ----- Health Connect -----
@@ -2005,15 +2095,27 @@
   A.hcSyncNow = () => { hcSync(true).then(() => toast('Synced.')); };
   // After a workout: fill in watch heart rate, then recompute calories with it.
   function hcWorkoutHr(sess, startMs) {
-    if (!REAL || !S.hc.connected || !S.hc.read.hr) return;
-    native('hcHeartRate', { start: new Date(startMs).toISOString(), end: new Date().toISOString() }).then(r => {
-      if (!r.avg) return;
-      sess.avgHr = r.avg;
-      sess.kcal = L.sessionCalories(S.profile, sess.min, r.avg, sess.morning ? L.MET.light : L.MET.strength);
-      const f = U.stack.find(x => x.kind === 'summary'); if (f) { f.avgHr = r.avg; f.kcal = sess.kcal; }
-      save(); render();
+    if (!REAL || !S.hc.connected) return;
+    const a = { start: new Date(startMs).toISOString(), end: new Date().toISOString() };
+    sess.win = a;
+    const upd = () => { const f = U.stack.find(x => x.kind === 'summary'); if (f) { f.avgHr = sess.avgHr; f.kcal = sess.kcal; } save(); render(); };
+    native('hcCalories', a).then(r => {
+      if (r.kcal > 0) { sess.kcal = r0(r.kcal); sess.kcalSrc = 'watch'; return upd(); }
+      if (!S.hc.read.hr) return;
+      native('hcHeartRate', a).then(h => {
+        if (!h.avg || sess.kcalSrc === 'watch') return;
+        sess.avgHr = h.avg; sess.kcalSrc = 'hr';
+        sess.kcal = L.sessionCalories(S.profile, sess.min, h.avg, sess.morning ? L.MET.light : L.MET.strength);
+        upd();
+      });
     });
   }
+  // The watch often syncs to Health Connect later, so today's workouts check again when the app comes back.
+  function hcRecheckBurn() {
+    if (!REAL || !S.hc.connected) return;
+    S.sessions.filter(s => s.date === today && s.win && s.kcalSrc !== 'watch').forEach(s => native('hcCalories', s.win).then(r => { if (r.kcal > 0) { s.kcal = r0(r.kcal); s.kcalSrc = 'watch'; save(); render(); } }));
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) hcRecheckBurn(); });
   function hcSendWorkout(sess) {
     if (!REAL || !S.hc.connected || !S.hc.write.sessions) return;
     const end = new Date(sess.start), start = new Date(end.getTime() - sess.min * 60e3);
@@ -2060,7 +2162,7 @@
     if (!aiReady()) return bridgeBase(s);
     const needsImg = ['food', 'eqphoto', 'label'].includes(s.v);
     return `<div class="small">Sends to <b>${esc(S.ai.model)}</b>${window.HFDev.hasSecret('ai_key') ? '' : ' (no API key saved)'}.</div>
-      ${needsImg ? `<label class="btn ghost sm" style="cursor:pointer;align-self:flex-start">${ic('camera')}${s.img ? 'Change photo' : 'Add a photo'}<input type="file" accept="image/*" data-in="aiImg" hidden></label>${s.img ? `<img src="${s.img}" alt="" style="max-height:160px;border-radius:8px;align-self:flex-start">` : ''}` : ''}
+      ${needsImg ? `<div class="row wrap"><label class="btn ghost sm" style="cursor:pointer">${ic('camera')}${s.img ? 'Retake' : 'Take photo'}<input type="file" accept="image/*" capture="environment" data-in="aiImg" hidden></label><label class="btn ghost sm" style="cursor:pointer">${ic('plate')}${s.img ? 'Pick another' : 'Choose photo'}<input type="file" accept="image/*" data-in="aiImg" hidden></label></div>${s.img ? `<img src="${s.img}" alt="" style="max-height:160px;border-radius:8px;align-self:flex-start">` : ''}` : ''}
       ${extraBox(s)}
       <button class="btn" data-act="aiSend" ${s.busy ? 'disabled' : ''}>${ic('spark')}${s.busy ? 'Asking\u2026' : s.answer ? 'Ask again' : 'Ask AI'}</button>
       ${s.err ? `<div class="small" style="color:var(--a-alert)">${esc(s.err)}</div>` : ''}
@@ -2123,8 +2225,8 @@
       const items = (j.exercises || []).map(x => { const e = aiEx(x.name); return e && { ex: e.id, sets: Math.max(1, Math.min(8, +x.sets || 3)), scheme: 'build' }; }).filter(Boolean);
       if (!items.length) return toast('None of those exercises are in your list.');
       U.sheet = null; save();
-      U.log = { kind: 'main', name: j.routine_name || 'AI workout', items, idx: 0, sets: items.map(it => [...Array(it.sets)].map(() => newSet(it.ex, it.scheme))), start: Date.now() };
-      U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; return render();
+      U.log = { kind: 'main', name: j.routine_name || 'AI workout', wd: null, items, idx: 0, sets: items.map(it => [...Array(it.sets)].map(() => newSet(it.ex, it.scheme))), start: Date.now() };
+      U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; render(); return logLive();
     } else { U.sheet = null; return render(); }
     U.sheet = null; gameCache = null; save(); render();
   };
@@ -2235,9 +2337,13 @@
   A.usualLog = d => { const it = d.r ? { recipeId: d.id, qty: +d.q } : { foodId: d.id, qty: +d.q }; logItem(it, U.foodDate, U.meal); save(); toast(`Logged ${itemName(it)}.`); };
 
   // ----- Quick add (#4) -----
-  A.quickAdd = d => { const e = d && d.entry ? S.log.find(x => x.id === d.entry) : null; U.sheet = { kind: 'quick', title: e ? 'Quick add' : 'Quick add numbers', entry: e?.id, meal: e?.meal || U.meal, q: e ? { ...e.quick } : { name: '', cal: '', p: '', c: '', f: '' } }; render(); };
-  SHEETS.quick = s => `<div class="small muted">For restaurant meals and guesses. No food is saved.</div>
-    <label class="fl">What was it? (optional)<input class="f" id="qa-name" value="${esc(s.q.name || '')}" placeholder="e.g. Chipotle bowl"></label>
+  // One "Add your own" sheet: log numbers once, or flip "Save to my foods" to keep it for next time.
+  A.quickAdd = d => { const e = d && d.entry ? S.log.find(x => x.id === d.entry) : null; U.sheet = { kind: 'quick', title: e ? 'Quick add' : 'Add your own', entry: e?.id, meal: e?.meal || U.meal, keep: false, q: e ? { ...e.quick } : { name: U.q ? U.q.trim() : '', cal: '', p: '', c: '', f: '', servName: '', grams: '' } }; render(); };
+  const qaRead = s => { ['name', 'servName'].forEach(k => { const el = $('#qa-' + k); if (el) s.q[k] = el.value; }); ['cal', 'p', 'c', 'f', 'grams'].forEach(k => { const el = $('#qa-' + k); if (el) s.q[k] = el.value === '' ? '' : +el.value; }); };
+  A.quickKeep = () => { const s = U.sheet; qaRead(s); s.keep = !s.keep; render(); };
+  SHEETS.quick = s => `${s.entry ? '<div class="small muted">A one-time entry. No food is saved.</div>' : `<div class="row"><span class="grow small"><b>Save to my foods</b><br><span class="tiny muted">${s.keep ? 'Kept for next time, with its barcode if you scanned one.' : 'Off: logs these numbers once (restaurant meals, guesses).'}</span></span>${sw(s.keep, 'quickKeep')}</div>`}
+    <label class="fl">${s.keep ? 'Name' : 'What was it? (optional)'}<input class="f" id="qa-name" value="${esc(s.q.name || '')}" placeholder="${s.keep ? 'e.g. Kirkland protein bar' : 'e.g. Chipotle bowl'}"></label>
+    ${s.keep ? `<div class="grid2"><label class="fl">One serving is<input class="f" id="qa-servName" value="${esc(s.q.servName || '')}" placeholder="e.g. 1 bar"></label><label class="fl">Weighs (g)<input class="f num" id="qa-grams" type="number" inputmode="decimal" value="${s.q.grams === '' || s.q.grams == null ? '' : s.q.grams}" placeholder="100"></label></div><div class="tiny muted">Numbers below are for one serving.</div>` : ''}
     <div class="grid2">${[['cal', 'Calories'], ['p', 'Protein g'], ['c', 'Carbs g'], ['f', 'Fat g']].map(([k, l]) => `<label class="fl">${l}<input class="f num" id="qa-${k}" type="number" inputmode="decimal" value="${s.q[k] === '' ? '' : r0(s.q[k])}"></label>`).join('')}</div>
     <div class="tiny muted">Leave calories blank and it's worked out from the macros.</div>
     <div class="chips">${MEALS.map(m => `<button class="chip ${s.meal === m ? 'on' : ''}" data-act="sheetMeal" data-v="${m}">${m}</button>`).join('')}</div>
@@ -2247,6 +2353,12 @@
     const q = { name: $('#qa-name').value.trim(), p: v('p'), c: v('c'), f: v('f') };
     q.cal = v('cal') || r0(q.p * 4 + q.c * 4 + q.f * 9);
     if (!q.cal) return toast('Enter calories or macros.');
+    if (s.keep && !s.entry) {
+      const f = { id: nid('c'), src: 'Custom', name: q.name || 'My food', servName: ($('#qa-servName')?.value || '').trim(), serv: v('grams') || 100, unit: 'g', cal: q.cal, p: q.p, c: q.c, f: q.f };
+      if (U.scanCode) { f.barcode = U.scanCode; U.scanCode = null; }
+      S.foods.push(f); logItem({ foodId: f.id, qty: 1 }, U.foodDate, s.meal);
+      U.sheet = null; save(); return toast(`Saved ${f.name} and logged it.`);
+    }
     if (s.entry) { const e = S.log.find(x => x.id === s.entry); if (e) { e.quick = q; e.meal = s.meal; } }
     else logItem({ quick: q, qty: 1 }, U.foodDate, s.meal);
     U.sheet = null; save(); toast(s.entry ? 'Updated.' : 'Logged.');
@@ -2373,8 +2485,9 @@
 
   // ----- USDA FoodData Central: plain foods (#7) -----
   // The key is kept in the phone's private storage (like the AI key) and added by the app; without one, USDA's shared DEMO_KEY is used.
-  async function usdaSearch(q) {
-    const base = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(q)}&pageSize=15&dataType=${encodeURIComponent('Foundation,SR Legacy,Survey (FNDDS)')}`;
+  async function usdaSearch(q, types = 'Foundation,SR Legacy,Survey (FNDDS)') {
+    const branded = types === 'Branded';
+    const base = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(q)}&pageSize=15&dataType=${encodeURIComponent(types)}`;
     let j;
     if (REAL) { const r = await native('http', { url: base, secretQuery: { param: 'api_key', secret: 'usda_key', fallback: 'DEMO_KEY' } }); if (r.error) throw new Error(r.error); if (r.status < 200 || r.status > 299) throw new Error('USDA ' + r.status + (r.status === 429 ? ' (too many searches: add your free key in Settings)' : '')); j = JSON.parse(r.body || '{}'); }
     else { const r = await fetch(base + '&api_key=DEMO_KEY'); if (!r.ok) throw new Error('USDA ' + r.status); j = await r.json(); }
@@ -2382,9 +2495,14 @@
     return (j.foods || []).map(x => {
       const fn = x.foodNutrients || [], p = num(fn, '203') || 0, c = num(fn, '205') || 0, f = num(fn, '204') || 0;
       const cal = num(fn, '208', '957', '958') ?? (p * 4 + c * 4 + f * 9);
-      return { id: 'usda' + x.fdcId, name: L.cap(String(x.description || '').toLowerCase()), src: 'USDA', serv: 100, unit: 'g', cal: r1(cal), p: r1(p), c: r1(c), f: r1(f) };
+      const name = L.cap(String(x.description || '').toLowerCase()) + (branded && x.brandName ? ' \u00b7 ' + x.brandName : branded && x.brandOwner ? ' \u00b7 ' + x.brandOwner : '');
+      // Branded numbers are per 100 g too; keep the label's serving as the household name when it's in grams.
+      const sg = branded && /^g$|^grm$/i.test(x.servingSizeUnit || '') ? +x.servingSize : 0;
+      const k = sg > 0 ? sg / 100 : 1;
+      return { id: 'usda' + x.fdcId, name, src: 'USDA', serv: sg > 0 ? r1(sg) : 100, unit: 'g', servName: sg > 0 ? (x.householdServingFullText || '') : '', cal: r1(cal * k), p: r1(p * k), c: r1(c * k), f: r1(f * k), ...(branded && x.gtinUpc ? { barcode: String(x.gtinUpc) } : {}) };
     }).filter(x => x.cal > 0 || x.p > 0);
   }
+  window.usdaBranded = q => usdaSearch(q, 'Branded');
   A.usdaSearch = async () => {
     const q = (U.q || '').trim(); if (!q) return;
     U.usda = { q, busy: true, items: [] }; render();
@@ -2472,6 +2590,431 @@ Return ONLY valid JSON, no other text:
       <div class="tiny muted">Free tiers have daily limits and the provider may use your requests to improve its models; check its terms. Model names change, so copy the current one from the provider's page. Open Food Facts needs no key.</div>` : ''}</div>`;
   A.keysOpen = () => { U.keysOpen = !U.keysOpen; render(); };
   IN.usdaKey = el => { if (REAL) { window.HFDev.setSecret('usda_key', el.value.trim()); el.value = ''; toast(el.placeholder = 'Key saved on this phone.'); } };
+
+  // ---------- Peptides (under More) ----------
+  // Vials, a dose calculator, editable schedules (split / microdose / step-up), a Today list with
+  // site rotation, history, a cravings check and a beginner guide. Shot reminders come from the app (native).
+  const PEP_SITES = [
+    ['belly-ul', 'Belly, upper left'], ['belly-ur', 'Belly, upper right'], ['belly-ll', 'Belly, lower left'], ['belly-lr', 'Belly, lower right'],
+    ['thigh-l', 'Left thigh'], ['thigh-r', 'Right thigh'], ['arm-l', 'Back of left arm'], ['arm-r', 'Back of right arm'],
+    ['hip-l', 'Left upper buttock'], ['hip-r', 'Right upper buttock'],
+  ];
+  const siteName = id => (PEP_SITES.find(x => x[0] === id) || [0, id || ''])[1];
+  const lastMonday = d => dateAdd(d, -((dow(d) + 6) % 7));
+  const nextDow = (d, wd) => dateAdd(d, (wd - dow(d) + 7) % 7);
+  function pepSeed() {
+    // From jake's Reconstitution & Dosing Worksheet v2 (2026-11-05). Everything stays editable.
+    const t = today;
+    return {
+      remind: false, syringes: [50, 100], tick100: null, tick50: null, crave: {}, shots: [], vials: [], seeded: t,
+      compounds: [
+        { id: 'rt', name: 'Retatrutide', code: 'RT60', vialMg: 60, bacMl: 6, unit: 'mg', useDays: 28 },
+        { id: 'cgl', name: 'Cagrilintide', code: 'CGL10', vialMg: 10, bacMl: 2, unit: 'mg', useDays: 28 },
+        { id: 'xa', name: 'Semax', code: 'XA10', vialMg: 10, bacMl: 2, unit: 'mcg', useDays: 28 },
+        { id: 'sk', name: 'Selank', code: 'SK10', vialMg: 10, bacMl: 2, unit: 'mcg', useDays: 28 },
+        { id: 'b12', name: 'B12', code: 'B12', vialMg: 10, bacMl: 2, unit: 'mg', useDays: 120, note: 'Your worksheet keeps B12 past 30 days on purpose. Look for cloudiness before every draw and keep it out of light.' },
+      ],
+      scheds: [
+        { id: 'p-rt', cid: 'rt', kind: 'days', days: [1], dose: 2, doseMode: 'shot', time: '08:00', start: t, missWin: 4, active: true, remind: true, note: 'Set this to the dose you are on now. Worksheet: hold each step 4+ weeks, +2 mg only if your stomach is quiet; 12 mg is the highest dose studied.' },
+        { id: 'p-cgl', cid: 'cgl', kind: 'days', days: [1], dose: 0.5, doseMode: 'shot', time: '08:00', start: t, missWin: 4, active: false, remind: true, ladder: [{ dose: 0.5, weeks: 2 }, { dose: 1, weeks: 2 }, { dose: 1.5, weeks: 2 }, { dose: 2, weeks: 2 }, { dose: 2.5, weeks: 1 }], note: 'Off until your reta dose is steady. Turn it on the week you start; the step-up counts from the start date. Trials stepped every 4 weeks; this sheet steps every 2. Never raise reta and cagrilintide in the same week.' },
+        { id: 'p-xa', cid: 'xa', kind: 'days', days: [2, 3, 4, 5, 6], dose: 0.3, doseMode: 'shot', time: '08:00', start: t, missWin: 0, active: true, remind: true, note: 'Mornings only (it can keep you up). 300 mcg to start, 500 mcg standard. Judge it after 10 to 14 days.' },
+        { id: 'p-sk', cid: 'sk', kind: 'days', days: [2, 3, 4, 5, 6], dose: 0.25, doseMode: 'shot', time: '12:00', start: t, missWin: 0, active: true, remind: true, note: '250 mcg for the first 2 to 3 days, then change this to 500 mcg. Separate shot from Semax, other side.' },
+        { id: 'p-b12', cid: 'b12', kind: 'load', days: [1], loadWeeks: 4, dose: 1, doseMode: 'shot', time: '08:00', start: t, missWin: 6, active: true, remind: true, note: 'Weekly for 4 weeks, then the first Monday of each month.' },
+      ],
+    };
+  }
+  if (!S.pep) S.pep = pepSeed();
+  U.sub.more = U.sub.more || 'today';
+  const P = () => S.pep;
+  const comp = id => P().compounds.find(c => c.id === id);
+  const schedById = id => P().scheds.find(s => s.id === id);
+  const fmtNum = n => String(+(+n).toFixed(3));
+  const doseTxt = (mg, c) => c && c.unit === 'mcg' ? `${r0(mg * 1000)} mcg` : `${fmtNum(mg)} mg`;
+  const unitsTxt = u => (Math.abs(u - Math.round(u)) < 0.05 ? String(Math.round(u)) : String(r1(u)));
+  const time12 = t => { const [h, m] = (t || '08:00').split(':').map(Number); return `${(h % 12) || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+  const pepSave = () => { save(); pepSync(); };
+  // The vial a dose comes from: open, not empty, not past its use-by; oldest first. Expired ones only if nothing else.
+  function activeVial(cid, date = today) {
+    const vs = P().vials.filter(v => v.cid === cid && !v.done).map(v => ({ v, st: L.pepVial(v, P().shots, date) })).filter(x => !x.st.empty).sort((a, b) => a.v.mixed.localeCompare(b.v.mixed));
+    return (vs.find(x => !x.st.expired) || vs[0] || null);
+  }
+  const concFor = (cid, date) => { const a = activeVial(cid, date); if (a) return a.st.conc; const c = comp(cid); return c ? L.pepConc(c.vialMg, c.bacMl) : 0; };
+
+  // ----- Syringe picture -----
+  // cap = syringe size in units (30, 50 or 100). Fill runs from the needle end.
+  function syringeSvg(units, cap) {
+    const x0 = 46, len = 230, u = Math.min(units, cap), x = x0 + len * u / cap;
+    const major = cap >= 100 ? 10 : 5, minor = cap >= 100 ? (P().tick100 || 2) : (P().tick50 || 1);
+    let ticks = '';
+    for (let k = 0; k <= cap + 1e-9; k += minor) { const tx = x0 + len * k / cap, big = Math.abs(k / major - Math.round(k / major)) < 1e-9; ticks += `<line class="tk" x1="${tx}" y1="22" x2="${tx}" y2="${big ? 34 : 28}"/>${big && k ? `<text x="${tx}" y="17" text-anchor="middle">${k}</text>` : ''}`; }
+    return `<svg class="syr" viewBox="0 0 300 66" role="img" aria-label="Syringe filled to ${unitsTxt(units)} units of ${cap}">
+      <line x1="2" y1="34" x2="34" y2="34" stroke="currentColor" stroke-width="1.5"/><rect x="34" y="30" width="12" height="8" fill="none" stroke="currentColor"/>
+      <rect class="fill" x="${x0}" y="22" width="${Math.max(0, x - x0)}" height="24"/>
+      <rect x="${x0}" y="22" width="${len}" height="24" fill="none" stroke="currentColor" stroke-width="1.5"/>${ticks}
+      <rect x="${x}" y="22" width="9" height="24" fill="currentColor"/><line x1="${x + 9}" y1="34" x2="${Math.max(x + 30, 290)}" y2="34" stroke="currentColor" stroke-width="3"/>
+      <line x1="${x}" y1="50" x2="${x}" y2="58" stroke="var(--a-accent)" stroke-width="2"/><text x="${x}" y="65" text-anchor="middle" style="fill:var(--a-accent);font-weight:700">${unitsTxt(u)}</text></svg>`;
+  }
+  // Plain words for where the plunger edge goes.
+  function readTxt(units, cap) {
+    const major = cap >= 100 ? 10 : 5, tick = cap >= 100 ? P().tick100 : P().tick50;
+    const below = Math.floor(units / major + 1e-9) * major, rest = r1(units - below);
+    if (rest < 0.05) return `Plunger's top edge on the "${below}" line.`;
+    if (!tick) return `${unitsTxt(units)} units: ${unitsTxt(rest)} past the "${below || 0}" line. Set what one small tick equals on this syringe (Calculator) and the app will count the ticks for you.`;
+    const n = rest / tick;
+    if (Math.abs(n - Math.round(n)) < 0.05) return `Plunger's top edge ${Math.round(n)} small tick${Math.round(n) === 1 ? '' : 's'} past "${below || 0}" (each tick is ${tick} unit${tick === 1 ? '' : 's'}).`;
+    return `Between ticks: ${unitsTxt(units)} units sits halfway between two ${tick}-unit ticks past "${below || 0}". A 0.5 ml syringe (1-unit ticks) reads this more exactly.`;
+  }
+  function drawHelp(units) {
+    const sy = L.pepSyringe(units, P().syringes);
+    return { sy, html: `${syringeSvg(sy.draws > 1 ? sy.cap : units, sy.cap)}<div class="tiny">${sy.draws > 1 ? `<b>More than one syringe holds.</b> Draw ${sy.cap} units, inject, then draw ${unitsTxt(units - sy.cap * (sy.draws - 1))} more${sy.draws > 2 ? ' (repeat)' : ''}. Or mix the next vial stronger.` : readTxt(units, sy.cap)} <span class="muted">${sy.cap === 100 ? '1 ml' : sy.cap === 50 ? '0.5 ml' : '0.3 ml'} syringe.</span>${units < 2 && units > 0 ? ' <b>Under 2 units is hard to measure:</b> use less water next time so the dose is bigger in units.' : ''}</div>` };
+  }
+
+  // ----- Body map -----
+  const FIG = '<circle cx="60" cy="20" r="13"/><path d="M54 33v6M66 33v6"/><path d="M38 42 Q60 35 82 42 L85 110 Q60 120 35 110 Z"/><path d="M38 44 Q26 72 22 124M82 44 Q94 72 98 124"/><path d="M37 110 L40 214 L56 214 L59 124 L61 124 L64 214 L80 214 L83 110"/>';
+  const FRONT = [['belly-ur', 46, 76, 7, 7, 'R'], ['belly-ul', 74, 76, 7, 7, 'L'], ['belly-lr', 46, 102, 7, 7, 'R'], ['belly-ll', 74, 102, 7, 7, 'L'], ['thigh-r', 48, 152, 8, 20, 'R'], ['thigh-l', 72, 152, 8, 20, 'L']];
+  const BACK = [['arm-l', 31, 74, 5, 13, 'L'], ['arm-r', 89, 74, 5, 13, 'R'], ['hip-l', 47, 108, 9, 7, 'L'], ['hip-r', 73, 108, 9, 7, 'R']];
+  function bodyMap(sel, act = 'pepSite') {
+    const shots = P().shots.filter(x => x.status === 'done' && x.site);
+    const recent = new Set(shots.filter(x => L.pepDaysBetween(x.date, today) < 7).map(x => x.site));
+    const sug = L.pepNextSite(PEP_SITES.map(x => x[0]), shots);
+    const fig = (sites, label, navel) => `<svg viewBox="0 0 120 232" role="group" aria-label="${label}"><g fill="none" stroke="currentColor" stroke-width="1.2">${FIG}</g>${navel ? '<circle cx="60" cy="89" r="1.6" fill="currentColor"/><circle cx="60" cy="89" r="8" fill="none" stroke="var(--a-alert)" stroke-dasharray="2 2"/>' : ''}
+      ${sites.map(([id, cx, cy, rx, ry, lr]) => `<ellipse class="site ${id === sel ? 'on' : id === sug ? 'sug' : recent.has(id) ? 'recent' : ''}" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" data-act="${act}" data-v="${id}" role="button" aria-label="${siteName(id)}"/><text x="${cx}" y="${cy + 3}" text-anchor="middle">${lr}</text>`).join('')}
+      <text x="60" y="229" text-anchor="middle">${label}</text></svg>`;
+    return `<div class="body-map">${fig(FRONT, 'Front (facing you)', true)}${fig(BACK, 'Back', false)}</div>
+      <div class="tiny muted">L and R are your left and right. Green = suggested next. Orange = used in the last 7 days. Red dashed ring = stay 2 inches from the navel.${sel ? ` Picked: <b>${esc(siteName(sel))}</b>.` : ''}</div>`;
+  }
+
+  // ----- What's due -----
+  function dueList(date = today) {
+    const shots = P().shots, act = P().scheds.filter(s => comp(s.cid));
+    const due = L.pepDueOn(act, date).map(x => ({ ...x, late: 0 }));
+    const late = date === today ? L.pepLate(act, shots, today) : [];
+    const byKey = Object.fromEntries(shots.map(x => [x.key, x]));
+    return [...late, ...due].map(x => ({ ...x, s: schedById(x.sid), c: comp(schedById(x.sid).cid), shot: byKey[x.key] })).sort((a, b) => (b.late - a.late) || a.s.time.localeCompare(b.s.time));
+  }
+  function dueRow(x) {
+    const conc = concFor(x.c.id, today), units = L.pepUnits(x.dose, conc), av = activeVial(x.c.id);
+    const st = x.shot ? x.shot.status : '';
+    return `<div class="pep-due ${x.late ? 'late' : ''} ${st ? 'done' : ''}" data-k="pep-due">
+      <div class="pep-units num">${conc ? unitsTxt(x.shot?.units ?? units) : '?'}<small>units</small></div>
+      <div class="grow"><b class="small">${esc(x.c.name)} ${esc(doseTxt(x.shot?.dose ?? x.dose, x.c))}</b>
+        <div class="tiny muted">${x.late ? `<b style="color:var(--a-warn)">${x.late} day${x.late > 1 ? 's' : ''} late</b> (window ${x.s.missWin} days) \u00b7 ` : ''}${time12(x.s.time)}${st === 'done' ? ` \u00b7 done${x.shot.site ? ', ' + esc(siteName(x.shot.site)) : ''}` : st === 'skipped' ? ' \u00b7 skipped' : av ? ` \u00b7 vial mixed ${shortDate(av.v.mixed)}${av.st.expired ? ' <b style="color:var(--a-alert)">past use-by</b>' : ''}` : ' \u00b7 <b>no vial mixed yet</b>'}</div></div>
+      ${st ? `<button class="btn sm ghost" data-act="pepUndo" data-v="${esc(x.key)}">Undo</button>` : av ? `<button class="btn sm ghost" data-act="pepSkip" data-v="${esc(x.key)}">Skip</button><button class="btn sm" data-act="pepDoneOpen" data-v="${esc(x.key)}" data-d="${x.dose}">Done</button>` : `<button class="btn sm" data-act="vialNew" data-v="${x.c.id}">Mix a vial</button>`}</div>`;
+  }
+  function vialWarnings() {
+    const out = [];
+    P().vials.filter(v => !v.done).forEach(v => {
+      const c = comp(v.cid), st = L.pepVial(v, P().shots, today); if (!c || st.empty) return;
+      if (st.expired) return out.push(`${c.name} vial (mixed ${shortDate(v.mixed)}) is past its use-by with ${fmtNum(r1(st.left))} mg left.`);
+      const need = P().scheds.filter(s => s.cid === v.cid && s.active !== false).reduce((a, s) => a + L.pepNeed(s, today, st.expires), 0);
+      if (need > st.left + 1e-6) out.push(`${c.name}: this vial runs out before ${shortDate(st.expires)} (needs about ${fmtNum(r1(need))} mg, has ${fmtNum(r1(st.left))}). Mix the next one soon.`);
+      else if (st.daysLeft <= 7 && st.left - need > 0.5) out.push(`${c.name}: about ${fmtNum(r1(st.left - need))} mg will be left when this vial hits its use-by on ${shortDate(st.expires)}.`);
+    });
+    return out;
+  }
+  const upcoming = (days = 7) => { const out = []; for (let i = 1; i <= days; i++) { const d = dateAdd(today, i); L.pepDueOn(P().scheds.filter(s => comp(s.cid)), d).forEach(x => out.push({ ...x, s: schedById(x.sid), c: comp(schedById(x.sid).cid) })); } return out; };
+
+  SCREENS['more:today'] = () => {
+    const due = dueList(), warn = vialWarnings(), up = upcoming(7), cr = P().crave[today] || 0;
+    return `${!P().guideSeen ? `<div class="card tight" data-k="pep-new"><div class="row"><span class="grow small"><b>New to this?</b> The Guide walks through mixing, drawing and giving a shot, with pictures.</span><button class="btn sm" data-act="pepGuideGo">${ic('book')}Guide</button></div></div>` : ''}
+      <div class="card" data-k="pep-due-card"><h2>Due today<span class="sp"></span><span class="tiny muted">${fmtDate(today)}</span></h2>
+        ${due.length ? due.map(dueRow).join('') : '<div class="small muted">Nothing due today.</div>'}
+        ${warn.map(w => `<div class="tiny" style="color:var(--a-warn)">${esc(w)}</div>`).join('')}</div>
+      ${REAL && !P().remind ? `<div class="card tight" data-k="pep-remind"><div class="row"><span class="grow small">${ic('bell', 'class="inl"')} Get a reminder at each dose time? It stays until you log or skip the dose.</span><button class="btn sm" data-act="pepRemindOn">Turn on</button></div></div>` : ''}
+      <div class="card tight" data-k="pep-crave"><div class="small"><b>Appetite and cravings today</b> <span class="tiny muted">1 = none, 5 = strong</span></div>
+        <div class="crave">${[1, 2, 3, 4, 5].map(n => `<button class="${cr === n ? 'on' : ''}" data-act="pepCrave" data-v="${n}">${n}</button>`).join('')}</div>${craveChart(14)}</div>
+      <div class="card" data-k="pep-next"><h2>Next 7 days</h2>${up.length ? up.map(x => `<div class="row small"><span style="width:70px" class="muted">${DAYS[dow(x.date)]} ${shortDate(x.date)}</span><span class="grow">${esc(x.c.name)} ${esc(doseTxt(x.dose, x.c))}</span><span class="tiny muted num">${unitsTxt(L.pepUnits(x.dose, concFor(x.c.id, x.date)))} u \u00b7 ${time12(x.s.time)}</span></div>`).join('') : '<div class="small muted">Nothing scheduled.</div>'}</div>
+      <div class="card tight flag" data-k="pep-flags-link" data-act="pepGuideGo" data-v="flags" style="cursor:pointer"><div class="small"><b>Red flags</b>: severe belly pain going to the back, can't keep fluids down, swelling of the face or throat. <span class="muted">Tap for the full list.</span></div></div>`;
+  };
+  // Cravings over the last N days, with shot days marked (GLP-type shots as a dot under the bar).
+  function craveChart(n) {
+    const days = [...Array(n)].map((_, i) => dateAdd(today, i - n + 1));
+    if (!days.some(d => P().crave[d])) return '<div class="tiny muted">Rate it daily; after a week or two this shows whether cravings climb toward the end of the week.</div>';
+    const shotDays = new Set(P().shots.filter(x => x.status === 'done' && ['rt', 'cgl'].includes(x.cid)).map(x => x.date));
+    const w = 300, bw = w / n;
+    return `<svg viewBox="0 0 ${w} 64" style="width:100%;height:auto" role="img" aria-label="Cravings, last ${n} days">${days.map((d, i) => { const v = P().crave[d] || 0, h = v * 10; return `${v ? `<rect x="${i * bw + 2}" y="${50 - h}" width="${bw - 4}" height="${h}" fill="var(--a-c)" rx="2"/>` : ''}${shotDays.has(d) ? `<circle cx="${i * bw + bw / 2}" cy="56" r="2.5" fill="var(--a-accent)"/>` : ''}<text x="${i * bw + bw / 2}" y="63" text-anchor="middle" style="font-size:7px;fill:var(--a-muted)">${DAYS[dow(d)][0]}</text>`; }).join('')}</svg><div class="tiny muted">Bars = cravings (1 to 5). Green dot = reta or cagrilintide shot that day.</div>`;
+  }
+
+  A.pepCrave = d => { const v = +d.v; if (P().crave[today] === v) delete P().crave[today]; else P().crave[today] = v; save(); render(); };
+  A.pepGuideGo = d => { P().guideSeen = true; save(); U.guideOpen = d.v || 'basics'; go('more', 'guide'); };
+  A.pepSkip = d => { const [sid, date] = d.v.split('|'), s = schedById(sid); P().shots.push({ id: nid('sh'), key: d.v, sid, cid: s.cid, date, status: 'skipped', dose: 0, at: new Date().toISOString() }); pepSave(); render(); toast('Skipped.'); };
+  A.pepUndo = d => { P().shots = P().shots.filter(x => x.key !== d.v); pepSave(); render(); };
+  A.pepDoneOpen = d => {
+    const [sid, date] = d.v.split('|'), s = schedById(sid), c = comp(s.cid), av = activeVial(c.id);
+    const site = L.pepNextSite(PEP_SITES.map(x => x[0]), P().shots.filter(x => x.status === 'done'));
+    U.sheet = { kind: 'pepDone', title: `${c.name}`, key: d.v, sid, date, cid: c.id, dose: +d.d, vialId: av?.v.id, site, time: new Date().toTimeString().slice(0, 5) }; render();
+  };
+  SHEETS.pepDone = s => {
+    const c = comp(s.cid), vs = P().vials.filter(v => v.cid === s.cid && !v.done), v = vs.find(x => x.id === s.vialId) || vs[0];
+    const conc = v ? L.pepConc(v.mg, v.ml) : 0, units = L.pepUnits(s.dose, conc), dh = drawHelp(units);
+    return `<div class="row"><span class="calbig num">${unitsTxt(units)}</span><span class="small">units of ${esc(doseTxt(s.dose, c))}<br><span class="tiny muted">${fmtNum(r1(conc))} mg/ml \u00b7 ${r1(units / 100 * 1000) / 1000} ml</span></span></div>
+      ${dh.html}
+      <div class="grid2"><label class="fl">Dose this time (${c.unit})<input class="f num" type="number" inputmode="decimal" step="any" value="${c.unit === 'mcg' ? r0(s.dose * 1000) : fmtNum(s.dose)}" data-in="pepDoseNow"></label><label class="fl">Time<input class="f" type="time" value="${s.time}" data-in="pepTimeNow"></label></div>
+      ${vs.length > 1 ? `<label class="fl">From vial<select class="f" data-in="pepVialNow">${vs.map(x => `<option value="${x.id}" ${x.id === (v && v.id) ? 'selected' : ''}>Mixed ${shortDate(x.mixed)} \u00b7 ${fmtNum(r1(L.pepVial(x, P().shots, today).left))} mg left</option>`).join('')}</select></label>` : ''}
+      <div class="small"><b>Where?</b> Tap a spot.</div>${bodyMap(s.site)}
+      <button class="btn block" data-act="pepDoneSave">Log it</button>
+      <div class="tiny muted">Wipe the vial top and your skin with alcohol, use a new syringe, then into the sharps container. <a class="linkbtn" data-act="pepGuideGo" data-v="inject">How to give the shot</a></div>`;
+  };
+  IN.pepDoseNow = el => { const c = comp(U.sheet.cid); U.sheet.dose = (+el.value || 0) / (c.unit === 'mcg' ? 1000 : 1); render(); };
+  IN.pepTimeNow = el => { U.sheet.time = el.value; };
+  IN.pepVialNow = el => { U.sheet.vialId = el.value; render(); };
+  A.pepSite = d => { if (U.sheet) { U.sheet.site = d.v; render(); } };
+  A.pepDoneSave = () => {
+    const s = U.sheet, vs = P().vials.filter(v => v.cid === s.cid && !v.done), v = vs.find(x => x.id === s.vialId) || vs[0];
+    const conc = v ? L.pepConc(v.mg, v.ml) : 0;
+    P().shots = P().shots.filter(x => x.key !== s.key);
+    P().shots.push({ id: nid('sh'), key: s.key, sid: s.sid, cid: s.cid, date: s.date, time: s.time, takenOn: today, status: 'done', dose: s.dose, units: r1(L.pepUnits(s.dose, conc)), vialId: v?.id, site: s.site, at: new Date().toISOString() });
+    U.sheet = null; pepSave(); toast('Logged.');
+  };
+
+  // ----- Vials -----
+  SCREENS['more:vials'] = () => `${P().compounds.map(c => {
+    const vs = P().vials.filter(v => v.cid === c.id && !v.done);
+    return `<div class="card" data-k="vial-card"><h2>${esc(c.name)} <span class="tiny muted">${esc(c.code || '')}</span><span class="sp"></span><button class="btn sm" data-act="vialNew" data-v="${c.id}">${ic('plus')}Mix a vial</button></h2>
+      ${vs.map(v => { const st = L.pepVial(v, P().shots, today); return `<div class="li tight" style="cursor:default"><div class="grow"><div class="small"><b>${fmtNum(v.mg)} mg + ${fmtNum(v.ml)} ml</b> = ${fmtNum(r1(st.conc))} mg/ml \u00b7 mixed ${shortDate(v.mixed)}</div>
+        <div class="tiny ${st.expired ? '' : 'muted'}" ${st.expired ? 'style="color:var(--a-alert)"' : ''}>${fmtNum(r1(st.left))} mg left (${r1(st.mlLeft)} ml) \u00b7 use by ${shortDate(st.expires)}${st.expired ? ' (past use-by: throw it out)' : ` (${st.daysLeft} days)`}</div></div>
+        <button class="btn sm ghost" data-act="vialDone" data-v="${v.id}">Finished</button></div>`; }).join('') || '<div class="small muted">No mixed vial.</div>'}
+      <div class="tiny muted">Default mix: ${fmtNum(c.vialMg)} mg + ${fmtNum(c.bacMl)} ml BAC = ${fmtNum(r1(L.pepConc(c.vialMg, c.bacMl)))} mg/ml \u00b7 good for ${c.useDays} days once mixed. <a class="linkbtn" data-act="compEdit" data-v="${c.id}">Edit</a></div>${c.note ? `<div class="tiny muted">${esc(c.note)}</div>` : ''}</div>`;
+  }).join('')}
+    <button class="btn ghost" data-act="compEdit" data-v="">${ic('plus')}Add a compound</button>
+    <div class="tiny muted" style="text-align:center"><a class="linkbtn" data-act="pepGuideGo" data-v="mix">How to mix a vial, step by step</a></div>`;
+  A.vialNew = d => { const c = comp(d.v); U.sheet = { kind: 'vialNew', title: 'Mix a vial: ' + c.name, cid: c.id, mg: c.vialMg, ml: c.bacMl, mixed: today, useDays: c.useDays }; render(); };
+  SHEETS.vialNew = s => {
+    const c = comp(s.cid), conc = L.pepConc(s.mg, s.ml), sch = P().scheds.find(x => x.cid === s.cid);
+    const dose = sch ? L.pepDose(sch, today) : 0;
+    return `<div class="grid2"><label class="fl">Powder in the vial (mg)<input class="f num" type="number" step="any" value="${s.mg}" data-in="vialF" data-k2="mg"></label><label class="fl">BAC water added (ml)<input class="f num" type="number" step="any" value="${s.ml}" data-in="vialF" data-k2="ml"></label>
+      <label class="fl">Mixed on<input class="f" type="date" max="${today}" value="${s.mixed}" data-in="vialF" data-k2="mixed"></label><label class="fl">Good for (days)<input class="f num" type="number" value="${s.useDays}" data-in="vialF" data-k2="useDays"></label></div>
+      <div class="small">= <b class="num">${fmtNum(r1(conc))} mg/ml</b>${dose ? ` \u00b7 your ${esc(doseTxt(dose, c))} dose = <b class="num">${unitsTxt(L.pepUnits(dose, conc))} units</b>` : ''}</div>
+      ${dose ? `<div class="tiny muted">Other amounts of water for ${esc(doseTxt(dose, c))}: ${[0.5, 1, 1.5, 2, 3, 4, 5, 6].filter(ml => ml !== +s.ml).map(ml => `${ml} ml = ${unitsTxt(L.pepUnits(dose, L.pepConc(s.mg, ml)))} u`).join(' \u00b7 ')}. Less water = fewer units per dose (finer measuring is harder); more water = bigger, easier-to-read draws.</div>` : ''}
+      <ol class="steps small"><li>Wash hands. Wipe both vial tops with alcohol and let them dry.</li><li>Draw ${fmtNum(s.ml)} ml of BAC water${s.ml > 1 ? ` (with a 1 ml syringe that's ${Math.ceil(s.ml)} fills)` : ''}.</li><li>Needle into the powder vial at an angle: let the water run slowly down the glass wall, not onto the powder.</li><li>Swirl or roll gently until clear. Never shake. Cloudy or bits floating: don't use it.</li><li>Write ${fmtNum(r1(conc))} mg/ml and today's date on it. Fridge (36-46 \u00b0F), never frozen.</li></ol>
+      <button class="btn block" data-act="vialSave">Save vial</button>`;
+  };
+  IN.vialF = el => { const k = el.dataset.k2; U.sheet[k] = k === 'mixed' ? el.value : +el.value || 0; render(); };
+  A.vialSave = () => { const s = U.sheet; if (!(s.mg > 0) || !(s.ml > 0)) return toast('Enter the mg and the ml.'); P().vials.push({ id: nid('v'), cid: s.cid, mg: s.mg, ml: s.ml, mixed: s.mixed || today, useDays: s.useDays || 28 }); U.sheet = null; pepSave(); toast('Vial saved.'); };
+  A.vialDone = d => { const v = P().vials.find(x => x.id === d.v); if (!v || !confirm('Mark this vial finished (used up or thrown out)?')) return; v.done = today; pepSave(); render(); };
+  A.compEdit = d => { const c = d.v ? comp(d.v) : { id: '', name: '', code: '', vialMg: 10, bacMl: 2, unit: 'mg', useDays: 28 }; U.sheet = { kind: 'compEdit', title: d.v ? 'Edit ' + c.name : 'Add a compound', c: { ...c } }; render(); };
+  SHEETS.compEdit = s => `<div class="grid2"><label class="fl">Name<input class="f" value="${esc(s.c.name)}" data-in="compF" data-k2="name"></label><label class="fl">Label code (optional)<input class="f" value="${esc(s.c.code || '')}" data-in="compF" data-k2="code"></label>
+    <label class="fl">Powder per vial (mg)<input class="f num" type="number" step="any" value="${s.c.vialMg}" data-in="compF" data-k2="vialMg"></label><label class="fl">Usual BAC water (ml)<input class="f num" type="number" step="any" value="${s.c.bacMl}" data-in="compF" data-k2="bacMl"></label>
+    <label class="fl">Doses shown in<select class="f" data-in="compF" data-k2="unit">${['mg', 'mcg'].map(u => `<option ${s.c.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></label><label class="fl">Good for after mixing (days)<input class="f num" type="number" value="${s.c.useDays}" data-in="compF" data-k2="useDays"></label></div>
+    <label class="fl">Note<textarea class="f small" rows="2" data-in="compF" data-k2="note">${esc(s.c.note || '')}</textarea></label>
+    <div class="row">${s.c.id && !P().shots.some(x => x.cid === s.c.id) ? `<button class="btn ghost" data-act="compDel">${ic('trash')}Delete</button>` : ''}<button class="btn block" data-act="compSave">Save</button></div>`;
+  IN.compF = el => { const k = el.dataset.k2; U.sheet.c[k] = ['vialMg', 'bacMl', 'useDays'].includes(k) ? +el.value || 0 : el.value; };
+  A.compSave = () => { const c = U.sheet.c; if (!c.name.trim()) return toast('Give it a name.'); if (c.id) Object.assign(comp(c.id), c); else P().compounds.push({ ...c, id: nid('c') }); U.sheet = null; pepSave(); };
+  A.compDel = () => { const id = U.sheet.c.id; P().compounds = P().compounds.filter(x => x.id !== id); P().scheds = P().scheds.filter(x => x.cid !== id); P().vials = P().vials.filter(x => x.cid !== id); U.sheet = null; pepSave(); };
+
+  // ----- Calculator -----
+  SCREENS['more:calc'] = () => {
+    const k = U.calc = U.calc || { src: '', mg: 10, ml: 2, dose: 0.5, unit: 'mg', units: '', target: 20 };
+    const vs = P().vials.filter(v => !v.done);
+    const v = vs.find(x => x.id === k.src);
+    const mg = v ? v.mg : k.mg, ml = v ? v.ml : k.ml, conc = L.pepConc(mg, ml);
+    const doseMg = k.unit === 'mcg' ? k.dose / 1000 : k.dose, units = L.pepUnits(doseMg, conc);
+    const dh = drawHelp(units);
+    return `<div class="card" data-k="calc-in"><h2>Dose to units</h2>
+      <label class="fl">Vial<select class="f" data-in="calcF" data-k2="src"><option value="">Type the numbers in</option>${vs.map(x => `<option value="${x.id}" ${x.id === k.src ? 'selected' : ''}>${esc(comp(x.cid)?.name || '?')}: ${fmtNum(x.mg)} mg + ${fmtNum(x.ml)} ml (mixed ${shortDate(x.mixed)})</option>`).join('')}</select></label>
+      ${v ? '' : `<div class="grid2"><label class="fl">Powder in the vial (mg)<input class="f num" type="number" step="any" value="${k.mg}" data-in="calcF" data-k2="mg"></label><label class="fl">BAC water (ml)<input class="f num" type="number" step="any" value="${k.ml}" data-in="calcF" data-k2="ml"></label></div>`}
+      <div class="row"><label class="fl grow">Dose<input class="f num" type="number" step="any" value="${k.dose}" data-in="calcF" data-k2="dose"></label><div class="seg" style="align-self:flex-end">${['mg', 'mcg'].map(u => `<button class="${k.unit === u ? 'on' : ''}" data-act="calcUnit" data-v="${u}">${u}</button>`).join('')}</div></div>
+      <div class="row"><span class="calbig num">${conc ? unitsTxt(units) : '\u2014'}</span><span class="small">units<br><span class="tiny muted">${fmtNum(r1(conc * 100) / 100)} mg/ml \u00b7 ${r1(units) / 100} ml \u00b7 1 unit = ${fmtNum(r1(conc / 100 * 1000 * 10) / 10)} mcg</span></span></div>
+      ${conc && units ? dh.html : ''}</div>
+      <div class="card" data-k="calc-rev"><h2>Units to dose</h2><div class="row"><label class="fl grow">I drew (units)<input class="f num" type="number" step="any" value="${k.units}" data-in="calcF" data-k2="units"></label><span class="small grow">${k.units ? `= <b>${fmtNum(r1(L.pepDoseFromUnits(+k.units, conc) * 1000) / 1000)} mg</b> (${r0(L.pepDoseFromUnits(+k.units, conc) * 1000)} mcg)` : ''}</span></div></div>
+      <div class="card" data-k="calc-water"><h2>How much water?</h2><div class="small">To make ${k.dose} ${k.unit} land on <input class="f num w56" type="number" value="${k.target}" data-in="calcF" data-k2="target"> units with a ${fmtNum(mg)} mg vial, add <b class="num">${fmtNum(r1(L.pepBacFor(mg, doseMg, +k.target) * 100) / 100)} ml</b> of BAC water.</div></div>
+      <div class="card" data-k="calc-syr"><h2>My syringes</h2>
+        <div class="chips">${[[30, '0.3 ml'], [50, '0.5 ml'], [100, '1 ml']].map(([c, l]) => `<button class="chip ${P().syringes.includes(c) ? 'on' : ''}" data-act="calcSyr" data-v="${c}">${l} (${c} units)</button>`).join('')}</div>
+        <div class="small">On my 1 ml syringe, one small tick is <span class="chips" style="display:inline-flex">${[1, 2].map(t => `<button class="chip ${P().tick100 === t ? 'on' : ''}" data-act="calcTick" data-k2="tick100" data-v="${t}">${t} unit${t > 1 ? 's' : ''}</button>`).join('')}</span></div>
+        <div class="small">On my 0.5 / 0.3 ml syringe, one small tick is <span class="chips" style="display:inline-flex">${[0.5, 1].map(t => `<button class="chip ${P().tick50 === t ? 'on' : ''}" data-act="calcTick" data-k2="tick50" data-v="${t}">${t} unit</button>`).join('')}</span></div>
+        <div class="tiny muted">Count the small marks between "0" and "10" on the barrel: 10 marks = 1 unit each, 5 marks = 2 units each. The app uses the smallest syringe that fits a dose.</div></div>`;
+  };
+  IN.calcF = el => { const k = el.dataset.k2; U.calc[k] = k === 'src' ? el.value : el.value === '' ? '' : +el.value; render(); };
+  A.calcUnit = d => { const k = U.calc; if (k.unit !== d.v) { k.dose = d.v === 'mcg' ? r0(k.dose * 1000) : k.dose / 1000; k.unit = d.v; } render(); };
+  A.calcSyr = d => { const c = +d.v, s = P().syringes; P().syringes = s.includes(c) ? (s.length > 1 ? s.filter(x => x !== c) : s) : [...s, c].sort((a, b) => a - b); save(); render(); };
+  A.calcTick = d => { P()[d.k2] = +d.v; save(); render(); };
+
+  // ----- Schedules -----
+  const KIND_TXT = { days: 'Chosen weekdays', every: 'Every few days', load: 'Weekly, then monthly' };
+  function schedSummary(s) {
+    const c = comp(s.cid), dn = (s.days || []).map(d => DAYS[d]).join(', ');
+    const base = L.pepDose(s, today);
+    const what = s.kind === 'every' ? `every ${s.n || 1} day${(s.n || 1) > 1 ? 's' : ''}` : s.kind === 'load' ? `${DAYS[(s.days || [1])[0]]}s for ${s.loadWeeks} weeks, then the first ${DAYS[(s.days || [1])[0]]} monthly` : dn || 'no days picked';
+    const split = s.kind === 'days' && s.doseMode === 'week' && s.days?.length > 1 ? ` (${doseTxt(L.pepBaseDose(s, today), c)} a week split ${s.days.length} ways)` : '';
+    const step = s.ladder?.length ? ` \u00b7 step ${L.pepStep(s, today) + 1} of ${s.ladder.length}` : '';
+    return `${doseTxt(base, c)} ${what} at ${time12(s.time)}${split}${step}`;
+  }
+  SCREENS['more:plan'] = () => `${P().scheds.map(s => { const c = comp(s.cid); if (!c) return ''; let nx = ''; for (let i = 0; i < 60 && !nx; i++) { const d = dateAdd(today, i); if (L.pepIsDue(s, d)) nx = d; }
+    return `<div class="card tight" data-k="sched-card"><div class="row"><b class="grow small">${esc(c.name)}</b>${sw(s.active !== false, 'schedActive', `data-v="${s.id}"`)}</div>
+      <div class="small">${esc(schedSummary(s))}</div><div class="tiny muted">${s.active === false ? 'Off' : nx ? 'Next: ' + fmtDate(nx) : 'Nothing in the next 60 days'}${s.missWin ? ` \u00b7 late window ${s.missWin} days` : ''}${s.remind === false ? ' \u00b7 no reminder' : ''}</div>
+      ${s.note ? `<div class="tiny muted">${esc(s.note)}</div>` : ''}<div class="row"><button class="btn sm ghost" data-act="schedEdit" data-v="${s.id}">${ic('edit')}Edit</button>${s.ladder?.length && s.active !== false ? `<button class="btn sm ghost" data-act="schedHold" data-v="${s.id}">Hold this step a week</button>` : ''}</div></div>`; }).join('')}
+    <button class="btn ghost" data-act="schedEdit" data-v="">${ic('plus')}Add a schedule</button>
+    <div class="tiny muted">Split a weekly dose into 2 or more smaller shots (for end-of-week cravings) with "Weekly total, split" in Edit. Microdosing = a small dose every day or every few days.</div>`;
+  A.schedActive = d => { const s = schedById(d.v); s.active = s.active === false; if (s.active && s.start < today && s.ladder?.length && confirm('Restart the step-up from today?')) s.start = today; pepSave(); render(); };
+  A.schedHold = d => { const s = schedById(d.v), i = L.pepStep(s, today); if (i < 0) return; s.ladder[i].weeks = (+s.ladder[i].weeks || 1) + 1; pepSave(); render(); toast('This step lasts one more week.'); };
+  A.schedEdit = d => { const s = d.v ? JSON.parse(JSON.stringify(schedById(d.v))) : { id: '', cid: P().compounds[0]?.id, kind: 'days', days: [1], dose: 1, doseMode: 'shot', time: '08:00', start: today, missWin: 0, active: true, remind: true, n: 2, loadWeeks: 4 }; pushFull({ kind: 'schedEdit', s }); };
+  FULL.schedEdit = f => {
+    const s = f.s, c = comp(s.cid) || P().compounds[0], u = c?.unit === 'mcg' ? 1000 : 1;
+    const prev = []; for (let i = 0; i < 120 && prev.length < 8; i++) { const d = dateAdd(today, i); if (L.pepIsDue({ ...s, active: true }, d)) prev.push(d); }
+    const conc = c ? concFor(c.id, today) : 0;
+    return `${bar(s.id ? 'Edit schedule' : 'New schedule', `<button class="btn sm" data-act="schedSave">Save</button>`)}<div class="scroll">
+      <div class="card"><label class="fl">Compound<select class="f" data-in="schedF" data-k2="cid">${P().compounds.map(x => `<option value="${x.id}" ${x.id === s.cid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+        <div class="chips">${Object.entries(KIND_TXT).map(([k, l]) => `<button class="chip ${s.kind === k ? 'on' : ''}" data-act="schedKind" data-v="${k}">${l}</button>`).join('')}</div>
+        ${s.kind === 'every' ? `<label class="fl">Every how many days?<input class="f num" type="number" min="1" value="${s.n || 1}" data-in="schedF" data-k2="n"></label><div class="tiny muted">1 = every day (daily microdose). Counts from the start date.</div>` : `<div class="daygrid">${DAYS.map((dn, i) => `<button class="chip ${(s.days || []).includes(i) ? 'on' : ''}" data-act="schedDay" data-v="${i}" style="padding:6px 0">${dn}</button>`).join('')}</div>`}
+        ${s.kind === 'load' ? `<label class="fl">Weekly for how many weeks first?<input class="f num" type="number" min="0" value="${s.loadWeeks || 0}" data-in="schedF" data-k2="loadWeeks"></label><div class="tiny muted">Pick one day. After the weekly part, it's the first of that weekday each month.</div>` : ''}
+        ${s.kind === 'days' && (s.days || []).length > 1 ? `<div class="seg">${[['shot', 'Same dose each shot'], ['week', 'Weekly total, split']].map(([k, l]) => `<button class="${(s.doseMode || 'shot') === k ? 'on' : ''}" data-act="schedMode" data-v="${k}">${l}</button>`).join('')}</div>` : ''}
+        <div class="grid2"><label class="fl">${s.doseMode === 'week' && s.kind === 'days' ? 'Weekly total' : 'Dose'} (${c?.unit || 'mg'})<input class="f num" type="number" step="any" value="${fmtNum((+s.dose || 0) * u)}" data-in="schedF" data-k2="dose"></label><label class="fl">Time<input class="f" type="time" value="${s.time}" data-in="schedF" data-k2="time"></label>
+          <label class="fl">Starts<input class="f" type="date" value="${s.start}" data-in="schedF" data-k2="start"></label><label class="fl">Late doses OK for (days)<input class="f num" type="number" min="0" value="${s.missWin || 0}" data-in="schedF" data-k2="missWin"></label></div>
+        <div class="tiny muted">After that many days a missed dose is dropped and you wait for the next one. 0 = skip missed doses. Tirzepatide's label uses 4 days for a weekly shot.</div>
+        <div class="row small"><span class="grow">Reminder at dose time</span>${sw(s.remind !== false, 'schedRemind')}</div></div>
+      <div class="card"><h2>Step-up<span class="sp"></span><button class="btn sm ghost" data-act="ladderAdd">${ic('plus')}Step</button></h2>
+        ${(s.ladder || []).map((st, i) => `<div class="row small"><span style="width:42px" class="muted">Step ${i + 1}</span><input class="f num w56" type="number" step="any" value="${fmtNum(st.dose * u)}" data-in="ladderF" data-i="${i}" data-k2="dose"><span>${c?.unit || 'mg'} for</span><input class="f num w56" type="number" min="1" value="${st.weeks}" data-in="ladderF" data-i="${i}" data-k2="weeks"><span>wk</span><button class="iconbtn sm" data-act="ladderDel" data-i="${i}" aria-label="Remove step">${ic('close')}</button></div>`).join('') || '<div class="small muted">No step-up: the dose above stays the same. Add steps to raise it on a timetable; the last step holds.</div>'}
+        ${s.ladder?.length ? '<div class="tiny muted">Steps count from the start date and replace the dose above. Raise one compound at a time.</div>' : ''}</div>
+      <div class="card"><label class="fl">Note<textarea class="f small" rows="2" data-in="schedF" data-k2="note">${esc(s.note || '')}</textarea></label></div>
+      <div class="card"><h2>Next doses</h2>${prev.map(d => { const ds = L.pepDose(s, d); return `<div class="row small"><span class="grow">${fmtDate(d)} ${time12(s.time)}</span><span>${esc(doseTxt(ds, c))}</span><span class="tiny muted num" style="width:60px;text-align:right">${conc ? unitsTxt(L.pepUnits(ds, conc)) + ' u' : ''}</span></div>`; }).join('') || '<div class="small muted">None in the next 4 months.</div>'}</div>
+      ${s.id ? `<button class="btn ghost" data-act="schedDel">${ic('trash')}Delete this schedule</button>` : ''}</div>`;
+  };
+  const SE = () => topFull().s;
+  IN.schedF = el => { const s = SE(), k = el.dataset.k2, c = comp(s.cid); s[k] = ['n', 'loadWeeks', 'missWin'].includes(k) ? Math.max(0, +el.value || 0) : k === 'dose' ? (+el.value || 0) / (c?.unit === 'mcg' ? 1000 : 1) : el.value; render(); };
+  IN.ladderF = el => { const s = SE(), c = comp(s.cid), st = s.ladder[+el.dataset.i]; st[el.dataset.k2] = el.dataset.k2 === 'dose' ? (+el.value || 0) / (c?.unit === 'mcg' ? 1000 : 1) : Math.max(1, +el.value || 1); render(); };
+  A.schedKind = d => { const s = SE(); s.kind = d.v; if (d.v === 'load') s.days = [(s.days || [1])[0] ?? 1]; render(); };
+  A.schedDay = d => { const s = SE(), i = +d.v; if (s.kind === 'load') s.days = [i]; else s.days = (s.days || []).includes(i) ? s.days.filter(x => x !== i) : [...(s.days || []), i].sort(); render(); };
+  A.schedMode = d => { const s = SE(); if (s.doseMode !== d.v) { const n = (s.days || []).length || 1; s.dose = d.v === 'week' ? s.dose * n : s.dose / n; if (s.ladder) s.ladder.forEach(x => { x.dose = d.v === 'week' ? x.dose * n : x.dose / n; }); s.doseMode = d.v; } render(); };
+  A.schedRemind = () => { const s = SE(); s.remind = s.remind === false; render(); };
+  A.ladderAdd = () => { const s = SE(); s.ladder = s.ladder || []; const l = s.ladder[s.ladder.length - 1]; s.ladder.push({ dose: l ? l.dose : s.dose, weeks: 4 }); render(); };
+  A.ladderDel = d => { const s = SE(); s.ladder.splice(+d.i, 1); if (!s.ladder.length) delete s.ladder; render(); };
+  A.schedSave = () => {
+    const s = SE(); if (!s.cid) return toast('Pick a compound.');
+    if (s.kind !== 'every' && !(s.days || []).length) return toast('Pick at least one day.');
+    if (s.id) Object.assign(schedById(s.id), s); else P().scheds.push({ ...s, id: nid('p') });
+    pepSave(); popFull(); toast('Schedule saved.');
+  };
+  A.schedDel = () => { const s = SE(); if (!confirm('Delete this schedule? Logged shots stay in History.')) return; P().scheds = P().scheds.filter(x => x.id !== s.id); pepSave(); popFull(); };
+
+  // ----- History -----
+  SCREENS['more:history'] = () => {
+    const m = U.pepMonth || today.slice(0, 7), first = m + '-01', start = dateAdd(first, -dow(first));
+    const shots = P().shots, byDate = {};
+    shots.forEach(x => { (byDate[x.date] = byDate[x.date] || []).push(x); });
+    const cells = [...Array(42)].map((_, i) => dateAdd(start, i));
+    const sel = U.pepDay || today;
+    const list = (byDate[sel] || []).map(x => ({ x, c: comp(x.cid) }));
+    const mo = (n) => { const d = new Date(m + '-15T12:00:00'); d.setMonth(d.getMonth() + n); return d.toISOString().slice(0, 7); };
+    return `<div class="card" data-k="pep-cal"><div class="row"><button class="iconbtn" data-act="pepMonth" data-v="${mo(-1)}" aria-label="Previous month">${ic('back')}</button><b class="grow" style="text-align:center">${MONTHS[+m.slice(5) - 1]} ${m.slice(0, 4)}</b><button class="iconbtn" data-act="pepMonth" data-v="${mo(1)}" aria-label="Next month">${ic('fwd')}</button></div>
+      <div class="daygrid">${DAYS.map(d => `<div class="tiny muted" style="text-align:center">${d[0]}</div>`).join('')}${cells.map(d => { const xs = byDate[d] || [], due = d > today ? L.pepDueOn(P().scheds, d).length : 0; return `<div class="d ${d === today ? 'today' : ''}" data-act="pepDay" data-v="${d}" style="cursor:pointer;${d.slice(0, 7) !== m ? 'opacity:.35;' : ''}${d === sel ? 'background:color-mix(in srgb,var(--a-accent) 12%,transparent)' : ''}">${+d.slice(8)}<br>${xs.map(x => `<i class="${x.status === 'skipped' ? 'sk' : ''}"></i>`).join('')}${[...Array(due)].map(() => '<i class="due"></i>').join('')}</div>`; }).join('')}</div>
+      <div class="tiny muted">Filled dot = done, gray = skipped, ring = planned.</div></div>
+      <div class="card" data-k="pep-day"><h2>${fmtDate(sel)}</h2>${list.map(({ x, c }) => `<div class="li tight" style="cursor:default"><div class="grow"><div class="small">${esc(c?.name || '?')} ${x.status === 'done' ? esc(doseTxt(x.dose, c)) : '<span class="muted">skipped</span>'}</div><div class="tiny muted">${x.status === 'done' ? `${x.units ?? ''} units${x.time ? ' \u00b7 ' + time12(x.time) : ''}${x.site ? ' \u00b7 ' + esc(siteName(x.site)) : ''}` : ''}</div></div><button class="iconbtn sm" data-act="pepUndo" data-v="${esc(x.key)}" aria-label="Delete">${ic('trash')}</button></div>`).join('') || '<div class="small muted">No shots logged.</div>'}
+        ${P().crave[sel] ? `<div class="tiny muted">Cravings: ${P().crave[sel]} of 5</div>` : ''}</div>
+      <div class="card" data-k="pep-crave-30"><h2>Cravings, last 4 weeks</h2>${craveChart(28)}</div>`;
+  };
+  A.pepMonth = d => { U.pepMonth = d.v; render(); };
+  A.pepDay = d => { U.pepDay = d.v; render(); };
+
+  // ----- Guide -----
+  const ART_G = {
+    basics: `<svg class="guide-art" viewBox="0 0 300 120" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="20" y="14" width="34" height="12" rx="2"/><path d="M24 26h26v8H24zM22 34h30v66a6 6 0 0 1-6 6H28a6 6 0 0 1-6-6z"/><path class="wt" d="M23 70h28v30a5 5 0 0 1-5 5H28a5 5 0 0 1-5-5z" stroke="none"/><text x="37" y="118" text-anchor="middle" fill="currentColor" stroke="none" style="font-size:10px">Vial</text>
+      <rect x="84" y="24" width="30" height="10" rx="2"/><path d="M86 34h26v72H86z"/><path class="wt" d="M87 52h24v53H87z" stroke="none"/><text x="99" y="118" text-anchor="middle" fill="currentColor" stroke="none" style="font-size:10px">BAC water</text>
+      <path d="M150 60h18M168 54h10v12h-10zM178 50h96v20h-96z"/><path class="wt" d="M178 51h30v18h-30z" stroke="none"/><path d="M208 50v20M274 56h14M288 50v20"/>${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => `<path d="M${178 + i * 9.6} 50v${i % 5 ? 4 : 8}"/>`).join('')}<text x="225" y="90" text-anchor="middle" fill="currentColor" stroke="none" style="font-size:10px">Insulin syringe: 100 units = 1 ml</text></svg>`,
+    mix: `<svg class="guide-art" viewBox="0 0 300 140" fill="none" stroke="currentColor" stroke-width="1.5"><g transform="rotate(-20 110 80)"><rect x="90" y="30" width="40" height="12" rx="2"/><path d="M94 42h32v8H94zM92 50h36v70a6 6 0 0 1-6 6H98a6 6 0 0 1-6-6z"/><path class="wt" d="M93 108h34v12a5 5 0 0 1-5 5H98a5 5 0 0 1-5-5z" stroke="none"/></g><path class="ac" d="M200 8 L130 52" stroke-width="2"/><path d="M200 8l60-36" stroke-width="6" opacity=".5"/><path class="ac" d="M126 56 C120 70 118 90 122 110" stroke-dasharray="3 3" stroke-width="2"/><text x="190" y="100" fill="currentColor" stroke="none" style="font-size:10px">Aim at the glass wall.</text><text x="190" y="114" fill="currentColor" stroke="none" style="font-size:10px">Let it trickle down.</text><text x="190" y="128" fill="currentColor" stroke="none" style="font-size:10px">Swirl, never shake.</text></svg>`,
+    draw: `<svg class="guide-art" viewBox="0 0 300 110" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 50h200v24H20z"/><path class="wt" d="M21 51h120v22H21z" stroke="none"/>${[...Array(21)].map((_, i) => `<path d="M${20 + i * 10} 50v${i % 5 ? 5 : 10}"/>`).join('')}<path d="M141 50h12v24h-12z" fill="currentColor"/><path d="M153 62h110" stroke-width="4"/><path class="ac" d="M141 40v-18M134 28l7-7 7 7" stroke-width="2"/><text x="141" y="14" text-anchor="middle" fill="currentColor" stroke="none" style="font-size:10px">Read here: the plunger's top edge (needle side)</text><text x="80" y="96" text-anchor="middle" fill="currentColor" stroke="none" style="font-size:10px">Hold it at eye level. Tap bubbles up, push them out.</text></svg>`,
+    inject: `<svg class="guide-art" viewBox="0 0 300 130" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 100 C60 100 70 60 100 60 C130 60 140 100 190 100 L290 100"/><path class="wt" d="M70 100 C80 75 90 64 100 64 C110 64 120 75 130 100z" stroke="none"/><path d="M60 70 C66 62 74 58 82 58M140 70 C134 62 126 58 118 58" stroke-width="3" opacity=".6"/><path class="ac" d="M100 80 L100 24" stroke-width="2"/><path d="M100 24v-18" stroke-width="6" opacity=".5"/><text x="100" y="120" text-anchor="middle" fill="currentColor" stroke="none" style="font-size:10px">Pinch, 90\u00b0</text><path d="M200 100 C220 100 230 80 245 80 C260 80 270 100 290 100"/><path class="ac" d="M245 92 L210 40" stroke-width="2"/><path d="M210 40 L200 25" stroke-width="6" opacity=".5"/><text x="245" y="120" text-anchor="middle" fill="currentColor" stroke="none" style="font-size:10px">Lean: 45\u00b0</text></svg>`,
+  };
+  const GUIDE = [
+    ['flags', 'Red flags: stop and get seen', () => `<div class="flag small"><ul class="steps" style="list-style:disc">
+      <li><b>Severe, constant pain in the upper middle belly</b>, maybe going through to the back, with or without vomiting (pancreatitis).</li>
+      <li><b>Pain under the right ribs</b> with fever, or yellow skin or eyes (gallbladder).</li>
+      <li><b>Can't keep fluids down</b>, very little or very dark pee, dizzy when standing (dehydration can hurt the kidneys). Your worksheet: hold reta and cagrilintide, restart at half dose.</li>
+      <li><b>Swelling of the face, lips, tongue or throat, trouble breathing</b>, or hives all over: call 911.</li>
+      <li><b>Racing heart, chest tightness or fainting</b> after a shot.</li>
+      <li><b>A lump in the neck, trouble swallowing or a hoarse voice that won't go away</b> (listed on GLP-1 drug labels).</li>
+      <li><b>A shot spot that spreads red, hot, hard or oozes</b>, or a fever (infection).</li></ul></div>`],
+    ['basics', 'The basics: vial, water, syringe, units', () => `${ART_G.basics}<ul class="steps small" style="list-style:disc">
+      <li><b>mg and mcg</b> are how much drug. 1 mg = 1,000 mcg. Reta and cagrilintide doses are in mg; Selank and Semax are in mcg (100 times smaller). Never mix them up.</li>
+      <li><b>BAC water</b> (bacteriostatic water) dissolves the powder. How much you add sets the strength: <b>mg per ml</b>.</li>
+      <li><b>Insulin syringes (U-100)</b> are marked in units: 100 units = 1 ml, so 1 unit = 0.01 ml.</li>
+      <li><b>The math:</b> units = dose \u00f7 strength \u00d7 100. Example: 60 mg + 6 ml = 10 mg/ml, so 2 mg = 0.2 ml = 20 units. The app does this for you on every dose.</li>
+      <li>Smaller syringes are easier to read: use the 0.5 ml one for anything up to 50 units.</li></ul>`],
+    ['mix', 'Mixing a vial', () => `${ART_G.mix}<ol class="steps small">
+      <li>Wash your hands. Clean a flat spot. Lay out alcohol swabs, BAC water, the vial, a syringe.</li>
+      <li>Pop the caps. Wipe both rubber tops with alcohol and let them dry.</li>
+      <li>Draw the BAC water. For more than 1 ml, fill the syringe more than once (or use a 3 ml mixing syringe).</li>
+      <li>Push the needle into the powder vial at an angle and aim at the glass wall. Push slowly so the water runs down the side.</li>
+      <li>Swirl or roll the vial between your palms. <b>Never shake.</b> Let it sit until it's fully clear (a few minutes).</li>
+      <li>Clear = good. Cloudy, colored or bits floating = don't use it.</li>
+      <li>Write the strength and the date on it. In the fridge (36 to 46 \u00b0F), never the freezer. Save it in Vials so the app tracks what's left and the use-by.</li></ol>`],
+    ['draw', 'Drawing a dose', () => `${ART_G.draw}<ol class="steps small">
+      <li>Check Today for the units. Wash hands, wipe the vial top.</li>
+      <li>Pull the plunger back to your dose line to fill the syringe with air, push the needle in, and push the air into the vial (makes drawing easier).</li>
+      <li>Turn the vial upside down. Pull the plunger a little past your line.</li>
+      <li>Tap the syringe so bubbles rise, then push back to exactly your line (bubbles out).</li>
+      <li>Read at eye level: the line is the plunger's flat top edge, the side nearest the needle.</li>
+      <li>Compare with the drawn syringe on the Log screen before you inject.</li></ol>`],
+    ['inject', 'Giving the shot (under the skin)', () => `${ART_G.inject}<ol class="steps small">
+      <li>Pick a spot (see Where to inject). Wipe with alcohol and let it dry.</li>
+      <li>Pinch about an inch of skin and fat.</li>
+      <li>Needle in all the way, quick and straight (90\u00b0). If you're lean, go in at 45\u00b0.</li>
+      <li>Push the plunger slowly. Wait 5 to 10 seconds, then pull straight out and let go of the pinch.</li>
+      <li>Don't rub. A drop of blood is normal: press with a cotton ball.</li>
+      <li>Syringe straight into the sharps container. New syringe every time, never shared.</li>
+      <li>Two shots the same day: separate syringes, different spots (worksheet: opposite sides). Never pool two peptides in one syringe.</li></ol>`],
+    ['sites', 'Where to inject', () => `${bodyMap(null, 'noop')}<ul class="steps small" style="list-style:disc">
+      <li><b>Belly</b>: anywhere soft at least 2 inches from the navel. Easiest to start with.</li>
+      <li><b>Front and outer thigh</b>: the middle third, between hip and knee.</li>
+      <li><b>Back of the upper arm</b>: the fatty part; easier with help.</li>
+      <li><b>Upper outer buttock / love handle</b>.</li>
+      <li>Move at least an inch from the last spot; rotate around the map. Skip moles, scars, bruises and stretch marks.</li>
+      <li>When you log a shot the app suggests the next spot (green).</li></ul>`],
+    ['store', 'Storage and supplies', () => `<ul class="steps small" style="list-style:disc">
+      <li>Mixed vials: fridge, upright, in a box (B12 especially: light breaks it down). Never frozen. If one freezes, throw it out.</li>
+      <li>Use within about 28 days of mixing (that's the BAC preservative limit). The app shows each vial's use-by.</li>
+      <li>Supplies: 0.5 ml and 1 ml insulin syringes, BAC water, alcohol swabs, a sharps container, a marker. A full monthly remix of your kit uses about 14 ml of BAC water, so a 30 ml bottle lasts about 2 months.</li>
+      <li>Sharps: a sealed sharps container (or a heavy plastic bottle with a screw lid); drop it at a pharmacy or sharps drop-off.</li></ul>`],
+    ['fix', 'Problems and fixes', () => `<ul class="steps small" style="list-style:disc">
+      <li><b>Air bubble in the syringe</b>: tap it up and push it out. A tiny one under the skin isn't dangerous; it just means a little less dose.</li>
+      <li><b>Bruise or drop of blood</b>: normal now and then. Press, don't rub.</li>
+      <li><b>Red, itchy bump</b> that fades in a day or two: common. Spreading, hot or oozing: see Red flags.</li>
+      <li><b>Dropped the needle or touched it</b>: throw it out and start over with a new one.</li>
+      <li><b>Botched draw</b> (wrong line, big bubble): push it back into the vial and redraw, or throw out the syringe.</li>
+      <li><b>Nausea</b> on reta/cagrilintide: smaller meals, stop eating when full, go easy on fat. Your sheet's first lever: skip cagrilintide for a week and keep reta.</li></ul>`],
+    ['missed', 'Missed doses', () => `<div class="small">Each schedule has a <b>late window</b> (Schedules \u2192 Edit). Inside it, Today shows the dose as late and you can still take it. After it, the dose is dropped and you wait for the next one. Never double up.</div>
+      <div class="tiny muted">For reference: tirzepatide's label (a weekly shot) says take it within 4 days, otherwise skip. Retatrutide has no label. Daily ones (Selank, Semax) are set to skip.</div>`],
+    ['review', 'Notes from your worksheet review', () => `<ul class="steps small" style="list-style:disc">
+      <li>The concentration and unit math is right for every vial.</li>
+      <li>12 mg was the highest retatrutide dose studied. At 10 mg/ml anything over 10 mg is more than a 1 ml syringe; the app tells you to split the draw.</li>
+      <li>Remixing reta monthly means most of a 60 mg vial goes in the trash at 2 to 4 mg a week; the Vials tab shows how much will be left at use-by.</li>
+      <li>Cagrilintide trials stepped up every 4 weeks; your sheet steps every 2 (more nausea risk).</li>
+      <li>Tick spacing differs by syringe: set yours in Calculator so the app counts ticks correctly.</li></ul>`],
+  ];
+  SCREENS['more:guide'] = () => { if (!P().guideSeen) { P().guideSeen = true; save(); }
+    return `<div class="tiny muted">Written for someone who has never done this. Tap a section.</div>${GUIDE.map(([k, t, body]) => { const open = U.guideOpen === k || k === 'flags'; return `<div class="card ${k === 'flags' ? 'flag' : ''}" data-k="guide-${k}"><h2 class="tap" data-act="guideOpen" data-v="${k}">${t}<span class="sp"></span>${k === 'flags' ? '' : chev(open)}</h2>${open ? body() : ''}</div>`; }).join('')}`; };
+  A.guideOpen = d => { if (d.v === 'flags') return; U.guideOpen = U.guideOpen === d.v ? null : d.v; render(); };
+
+  // ----- Reminders (installed app) -----
+  A.pepRemindOn = async () => {
+    const r = await native('notifyPermission');
+    if (r.error) return toast(r.error);
+    if (!r.granted) return toast('Notifications are off for this app. Turn them on in the phone\'s settings.');
+    P().remind = true; pepSave(); render(); toast('Reminders on.');
+  };
+  function pepSync() {
+    if (!REAL || !window.HFDev.call) return;
+    if (!P().remind || !S.modules.peptides) return native('pepSchedule', { items: [] });
+    const items = [], logged = new Set(P().shots.map(x => x.key)), now = Date.now();
+    const scheds = P().scheds.filter(s => s.remind !== false && comp(s.cid));
+    for (let i = -7; i <= 14; i++) {
+      const d = dateAdd(today, i);
+      L.pepDueOn(scheds, d).forEach(x => {
+        if (logged.has(x.key)) return;
+        const s = schedById(x.sid), c = comp(s.cid), [h, m] = s.time.split(':').map(Number);
+        const at = new Date(d + 'T00:00:00'); at.setHours(h, m, 0, 0);
+        const until = s.missWin ? at.getTime() + s.missWin * 864e5 : new Date(d + 'T23:59:00').getTime();
+        if (until < now) return;
+        const conc = concFor(c.id, d), u = conc ? unitsTxt(L.pepUnits(x.dose, conc)) : null;
+        items.push({ key: x.key, at: at.getTime(), until, title: `${c.name} ${doseTxt(x.dose, c)}`, text: u ? `Draw ${u} units. Tap to log it.` : 'Mix a vial first, then log it.' });
+      });
+    }
+    native('pepSchedule', { items });
+  }
+  // Tapped a reminder: open Today.
+  const appOpen0 = window.App && window.App.open;
+  window.App.open = where => { if (where === 'peptides' && S.modules.peptides) go('more', 'today'); else if (appOpen0) appOpen0(where); };
+  if (REAL && window.HFDev.takeLaunch && window.HFDev.takeLaunch() === 'peptides' && S.modules.peptides) { S.tab = 'more'; U.sub.more = 'today'; }
+  if (REAL) setTimeout(pepSync, 1500);
   render();
   if (REAL) hcSync();
 })();

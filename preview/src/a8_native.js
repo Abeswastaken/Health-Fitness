@@ -36,7 +36,10 @@
   };
 
   // ----- Online food search (Open Food Facts), right inside the food log -----
-  async function getJson(url) {
+  // Gives up after ms so a slow service can't leave "Searching…" up forever.
+  const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(what + ' took too long')), ms))]);
+  async function getJson(url, ms = 12000) { return withTimeout(getJson0(url), ms, 'Open Food Facts'); }
+  async function getJson0(url) {
     if (REAL) { const r = await native('http', { url }); if (r.error) throw new Error(r.error); if (r.status < 200 || r.status > 299) throw new Error('HTTP ' + r.status); return JSON.parse(r.body || 'null'); }
     const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json();
   }
@@ -44,23 +47,25 @@
     const q = (U.q || '').trim(); if (!q) return;
     U.off = { q, busy: true, items: [] }; render();
     const fields = 'code,product_name,brands,nutriments,serving_size,serving_quantity';
-    let items = [], err = '';
-    try {
-      const j = await getJson(`https://search.openfoodfacts.org/search?q=${encodeURIComponent(q)}&page_size=20&fields=${fields}`);
-      items = (j && j.hits) || [];
-    } catch (e) { err = e.message; }
-    if (!items.length) {
-      try {
-        const j = await getJson(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&json=1&page_size=20&fields=${fields}`);
-        items = (j && j.products) || []; err = '';
-      } catch (e) { err = err || e.message; }
-    }
-    items = items.filter(p => p.code && p.product_name && p.nutriments && (p.nutriments['energy-kcal_100g'] != null || p.nutriments['energy-kcal_serving'] != null)).map(p => offFood(p.code, p));
-    if (U.off?.q !== q) return;
-    U.off = { q, busy: false, items, err }; render();
+    // Open Food Facts' two searches and USDA's branded foods run at once. Results show as each one answers;
+    // a slow one gives up after its time limit instead of leaving "Searching…" up.
+    const ok = p => p && p.code && p.product_name && p.nutriments && (p.nutriments['energy-kcal_100g'] != null || p.nutriments['energy-kcal_serving'] != null);
+    const got = { a: [], b: [], br: [] }, errs = [];
+    let left = 3;
+    const show = () => {
+      if (U.off?.q !== q) return;
+      const seen = new Set();
+      const off = [...got.a, ...got.b].filter(p => ok(p) && !seen.has(p.code) && seen.add(p.code)).map(p => offFood(p.code, p));
+      const items = [...off, ...got.br];
+      U.off = { q, busy: left > 0 && !items.length, more: left > 0, items, err: !items.length && !left ? errs[0] || '' : '' }; render();
+    };
+    const run = (k, pr) => pr.then(v => { got[k] = v || []; }, e => { errs.push(e.message); }).finally(() => { left--; show(); });
+    run('a', getJson(`https://search.openfoodfacts.org/search?q=${encodeURIComponent(q)}&page_size=20&fields=${fields}`).then(j => (j && j.hits) || []));
+    run('b', getJson(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&json=1&page_size=20&fields=${fields}`, 15000).then(j => (j && j.products) || []));
+    run('br', window.usdaBranded ? withTimeout(window.usdaBranded(q), 12000, 'USDA') : Promise.resolve([]));
   };
   A.offPick = d => {
-    const f = U.off?.items?.[+d.i]; if (!f) return;
+    const f = (d.id && U.off?.items?.find(x => x.id === d.id)) || U.off?.items?.[+d.i]; if (!f) return;
     if (!S.foods.some(x => x.id === f.id)) { S.foods.push(f); save(); }
     if (topFull()?.kind === 'ingPick') return A.ingAdd({ id: f.id });
     U.sheet = { kind: 'food', title: f.name, id: f.id, r: false, qty: 1, meal: U.meal }; render();
@@ -70,7 +75,7 @@
     const o = U.off && U.off.q === (U.q || '').trim() ? U.off : null;
     const btns = `<div class="row wrap"><button class="btn sm" data-act="offSearch" ${o?.busy ? 'disabled' : ''}>${ic('search')}${o?.busy ? 'Searching…' : 'Search online'}</button><button class="btn sm soft" data-act="foodAI" data-src="search">${ic('spark')}Ask AI for macros</button><button class="btn sm ghost" data-act="newFood">${ic('plus')}By hand</button></div>`;
     if (!o || o.busy) return btns;
-    return `${o.items.length ? `<div class="tiny muted caps">Open Food Facts</div><div class="list">${o.items.map((f, i) => `<div class="li" data-act="offPick" data-i="${i}"><div class="grow"><div class="small">${esc(f.name)}</div><div class="tiny muted num">${r0(f.cal)} kcal · P${r0(f.p)} C${r0(f.c)} F${r0(f.f)} per ${f.servName ? esc(f.servName) : r0(f.serv) + ' g'}</div></div></div>`).join('')}</div>` : `<div class="small muted">${o.err ? 'Online search failed: ' + esc(o.err) : 'Nothing online for "' + esc(o.q) + '".'} Try fewer words, or ask the AI.</div>`}${btns}`;
+    return `${o.items.length ? `<div class="tiny muted caps">Packaged foods (Open Food Facts, USDA)${o.more ? ' · still checking…' : ''}</div><div class="list">${o.items.map((f, i) => `<div class="li" data-act="offPick" data-i="${i}" data-id="${esc(f.id)}"><div class="grow"><div class="small">${esc(f.name)}</div><div class="tiny muted num">${r0(f.cal)} kcal · P${r0(f.p)} C${r0(f.c)} F${r0(f.f)} per ${f.servName ? esc(f.servName) : r0(f.serv) + ' g'}</div></div></div>`).join('')}</div>` : `<div class="small muted">${o.err ? 'Online search failed: ' + esc(o.err) : 'Nothing online for "' + esc(o.q) + '".'} Try fewer words, or ask the AI.</div>`}${btns}`;
   };
 
   // ----- Health Connect -----
@@ -112,15 +117,27 @@
   A.hcSyncNow = () => { hcSync(true).then(() => toast('Synced.')); };
   // After a workout: fill in watch heart rate, then recompute calories with it.
   function hcWorkoutHr(sess, startMs) {
-    if (!REAL || !S.hc.connected || !S.hc.read.hr) return;
-    native('hcHeartRate', { start: new Date(startMs).toISOString(), end: new Date().toISOString() }).then(r => {
-      if (!r.avg) return;
-      sess.avgHr = r.avg;
-      sess.kcal = L.sessionCalories(S.profile, sess.min, r.avg, sess.morning ? L.MET.light : L.MET.strength);
-      const f = U.stack.find(x => x.kind === 'summary'); if (f) { f.avgHr = r.avg; f.kcal = sess.kcal; }
-      save(); render();
+    if (!REAL || !S.hc.connected) return;
+    const a = { start: new Date(startMs).toISOString(), end: new Date().toISOString() };
+    sess.win = a;
+    const upd = () => { const f = U.stack.find(x => x.kind === 'summary'); if (f) { f.avgHr = sess.avgHr; f.kcal = sess.kcal; } save(); render(); };
+    native('hcCalories', a).then(r => {
+      if (r.kcal > 0) { sess.kcal = r0(r.kcal); sess.kcalSrc = 'watch'; return upd(); }
+      if (!S.hc.read.hr) return;
+      native('hcHeartRate', a).then(h => {
+        if (!h.avg || sess.kcalSrc === 'watch') return;
+        sess.avgHr = h.avg; sess.kcalSrc = 'hr';
+        sess.kcal = L.sessionCalories(S.profile, sess.min, h.avg, sess.morning ? L.MET.light : L.MET.strength);
+        upd();
+      });
     });
   }
+  // The watch often syncs to Health Connect later, so today's workouts check again when the app comes back.
+  function hcRecheckBurn() {
+    if (!REAL || !S.hc.connected) return;
+    S.sessions.filter(s => s.date === today && s.win && s.kcalSrc !== 'watch').forEach(s => native('hcCalories', s.win).then(r => { if (r.kcal > 0) { s.kcal = r0(r.kcal); s.kcalSrc = 'watch'; save(); render(); } }));
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) hcRecheckBurn(); });
   function hcSendWorkout(sess) {
     if (!REAL || !S.hc.connected || !S.hc.write.sessions) return;
     const end = new Date(sess.start), start = new Date(end.getTime() - sess.min * 60e3);
@@ -167,7 +184,7 @@
     if (!aiReady()) return bridgeBase(s);
     const needsImg = ['food', 'eqphoto', 'label'].includes(s.v);
     return `<div class="small">Sends to <b>${esc(S.ai.model)}</b>${window.HFDev.hasSecret('ai_key') ? '' : ' (no API key saved)'}.</div>
-      ${needsImg ? `<label class="btn ghost sm" style="cursor:pointer;align-self:flex-start">${ic('camera')}${s.img ? 'Change photo' : 'Add a photo'}<input type="file" accept="image/*" data-in="aiImg" hidden></label>${s.img ? `<img src="${s.img}" alt="" style="max-height:160px;border-radius:8px;align-self:flex-start">` : ''}` : ''}
+      ${needsImg ? `<div class="row wrap"><label class="btn ghost sm" style="cursor:pointer">${ic('camera')}${s.img ? 'Retake' : 'Take photo'}<input type="file" accept="image/*" capture="environment" data-in="aiImg" hidden></label><label class="btn ghost sm" style="cursor:pointer">${ic('plate')}${s.img ? 'Pick another' : 'Choose photo'}<input type="file" accept="image/*" data-in="aiImg" hidden></label></div>${s.img ? `<img src="${s.img}" alt="" style="max-height:160px;border-radius:8px;align-self:flex-start">` : ''}` : ''}
       ${extraBox(s)}
       <button class="btn" data-act="aiSend" ${s.busy ? 'disabled' : ''}>${ic('spark')}${s.busy ? 'Asking…' : s.answer ? 'Ask again' : 'Ask AI'}</button>
       ${s.err ? `<div class="small" style="color:var(--a-alert)">${esc(s.err)}</div>` : ''}
@@ -230,8 +247,8 @@
       const items = (j.exercises || []).map(x => { const e = aiEx(x.name); return e && { ex: e.id, sets: Math.max(1, Math.min(8, +x.sets || 3)), scheme: 'build' }; }).filter(Boolean);
       if (!items.length) return toast('None of those exercises are in your list.');
       U.sheet = null; save();
-      U.log = { kind: 'main', name: j.routine_name || 'AI workout', items, idx: 0, sets: items.map(it => [...Array(it.sets)].map(() => newSet(it.ex, it.scheme))), start: Date.now() };
-      U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; return render();
+      U.log = { kind: 'main', name: j.routine_name || 'AI workout', wd: null, items, idx: 0, sets: items.map(it => [...Array(it.sets)].map(() => newSet(it.ex, it.scheme))), start: Date.now() };
+      U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; render(); return logLive();
     } else { U.sheet = null; return render(); }
     U.sheet = null; gameCache = null; save(); render();
   };

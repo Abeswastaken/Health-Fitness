@@ -540,6 +540,99 @@
     return weeks > 0 ? (b.v - a.v) / weeks : null;
   };
 
+
+  // ---------- Peptides ----------
+  // U-100 insulin syringes: 100 units = 1 ml. Concentration is set by how much BAC water goes in.
+  L.pepConc = (mg, ml) => (ml > 0 ? mg / ml : 0); // mg per ml
+  L.pepUnits = (doseMg, conc) => (conc > 0 ? doseMg / conc * 100 : 0);
+  L.pepDoseFromUnits = (units, conc) => units / 100 * conc;
+  // How much water makes doseMg land on a given number of units.
+  L.pepBacFor = (vialMg, doseMg, units) => (doseMg > 0 && units > 0 ? vialMg * units / (doseMg * 100) : 0);
+  // Smallest syringe (in units: 30, 50, 100) that holds the dose in one draw; else the biggest, with the draw count.
+  L.pepSyringe = (units, owned = [50, 100]) => {
+    const o = [...owned].sort((a, b) => a - b);
+    const fit = o.find(c => units <= c + 1e-9);
+    if (fit) return { cap: fit, draws: 1 };
+    const big = o[o.length - 1] || 100;
+    return { cap: big, draws: Math.ceil(units / big - 1e-9) };
+  };
+  const dn = d => Math.round(Date.parse(d + 'T12:00:00Z') / 864e5);
+  const wdOf = d => new Date(d + 'T12:00:00Z').getUTCDay();
+  L.pepDaysBetween = (a, b) => dn(b) - dn(a);
+  // Step-up ladder: [{dose, weeks}] from s.start. Past the last step, the last dose holds.
+  L.pepBaseDose = (s, date) => {
+    if (!s.ladder || !s.ladder.length) return +s.dose || 0;
+    const wk = Math.floor(Math.max(0, dn(date) - dn(s.start)) / 7);
+    let acc = 0;
+    for (const st of s.ladder) { acc += Math.max(1, +st.weeks || 1); if (wk < acc) return +st.dose || 0; }
+    return +s.ladder[s.ladder.length - 1].dose || 0;
+  };
+  // Which step of the ladder a date is on (index), or -1 without a ladder.
+  L.pepStep = (s, date) => {
+    if (!s.ladder || !s.ladder.length) return -1;
+    const wk = Math.floor(Math.max(0, dn(date) - dn(s.start)) / 7);
+    let acc = 0;
+    for (let i = 0; i < s.ladder.length; i++) { acc += Math.max(1, +s.ladder[i].weeks || 1); if (wk < acc) return i; }
+    return s.ladder.length - 1;
+  };
+  // kinds: days (chosen weekdays; doseMode 'week' splits a weekly total across them),
+  // every (every n days from start), load (weekly on one weekday for loadWeeks, then the first one of each month).
+  L.pepIsDue = (s, date) => {
+    if (!s || s.active === false || !s.start || date < s.start || (s.end && date > s.end)) return false;
+    const wd = wdOf(date), diff = dn(date) - dn(s.start);
+    if (s.kind === 'every') return diff % Math.max(1, +s.n || 1) === 0;
+    if (s.kind === 'load') {
+      const day = s.days && s.days.length ? s.days[0] : 1;
+      if (wd !== day) return false;
+      const first = (day - wdOf(s.start) + 7) % 7; // days from start to the first such weekday
+      const idx = Math.floor((diff - first) / 7);
+      if (idx < (+s.loadWeeks || 0)) return true;
+      return +date.slice(8) <= 7;
+    }
+    return (s.days || []).includes(wd);
+  };
+  L.pepDose = (s, date) => {
+    const base = L.pepBaseDose(s, date);
+    return s.kind === 'days' && s.doseMode === 'week' && s.days && s.days.length ? base / s.days.length : base;
+  };
+  const addD = (d, n) => L.iso(new Date(Date.parse(d + 'T12:00:00Z') + n * 864e5));
+  L.pepAddDays = addD;
+  // Doses due on a date: [{key, sid, date, dose}]
+  L.pepDueOn = (scheds, date) => scheds.filter(s => L.pepIsDue(s, date)).map(s => ({ key: s.id + '|' + date, sid: s.id, date, dose: L.pepDose(s, date) }));
+  // Missed doses still inside each schedule's window (missWin days), newest per schedule,
+  // and only while no newer dose has come due.
+  L.pepLate = (scheds, shots, today) => {
+    const logged = new Set(shots.map(x => x.key));
+    const out = [];
+    for (const s of scheds) {
+      const win = +s.missWin || 0;
+      if (!win || s.active === false) continue;
+      if (L.pepIsDue(s, today)) continue;
+      for (let i = 1; i <= win; i++) {
+        const d = addD(today, -i);
+        if (!L.pepIsDue(s, d)) continue;
+        if (!logged.has(s.id + '|' + d)) out.push({ key: s.id + '|' + d, sid: s.id, date: d, dose: L.pepDose(s, d), late: i });
+        break;
+      }
+    }
+    return out;
+  };
+  // Vial: {id, cid, mg, ml, mixed, useDays}. Shots: {vialId, dose, status}.
+  L.pepVial = (v, shots, today) => {
+    const used = shots.filter(x => x.vialId === v.id && x.status === 'done').reduce((a, x) => a + (+x.dose || 0), 0);
+    const left = Math.max(0, v.mg - used), conc = L.pepConc(v.mg, v.ml);
+    const expires = addD(v.mixed, +v.useDays || 28);
+    return { used, left, conc, expires, daysLeft: dn(expires) - dn(today), mlLeft: conc ? left / conc : 0, expired: today > expires, empty: left <= 1e-6 };
+  };
+  // Upcoming mg a schedule needs between two dates (inclusive), for "will this vial expire with a lot left".
+  L.pepNeed = (s, from, to) => { let mg = 0; for (let d = from; d <= to; d = addD(d, 1)) if (L.pepIsDue(s, d)) mg += L.pepDose(s, d); return mg; };
+  // Next injection spot: the one unused the longest (never the last one used).
+  L.pepNextSite = (sites, shots) => {
+    const last = {};
+    shots.forEach(x => { if (x.site && x.status === 'done') { const t = x.date + ' ' + (x.time || ''); if (!last[x.site] || t > last[x.site]) last[x.site] = t; } });
+    return [...sites].sort((a, b) => (last[a] || '').localeCompare(last[b] || ''))[0];
+  };
+
   root.Logic = L;
   if (typeof module !== 'undefined') module.exports = L;
 })(typeof window !== 'undefined' ? window : globalThis);

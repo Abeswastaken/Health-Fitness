@@ -62,6 +62,12 @@
     plate: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/>',
     target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
     scales: '<path d="M12 3v18M5 21h14M4 7h16M4 7l-2 6a3 3 0 0 0 4 0zM20 7l-2 6a3 3 0 0 0 4 0z"/>',
+    dots: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+    syringe: '<path d="M18 2l4 4M20 4l-3 3M17 7l-9.5 9.5-3 .5.5-3L14.5 4.5zM11 7l2 2M8.5 9.5l2 2M3 21l2.5-2.5"/>',
+    vial: '<path d="M9 2h6M10 2v3h4V2M8 5h8v3H8zM9 8v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V8"/><path d="M9 14h6"/>',
+    bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+    book: '<path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4zM20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/>',
+    calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h2M12 11h2M16 11h0M8 15h2M12 15h2M8 18h2M12 18h2M16 15v3"/>',
     anvil: '<path d="M3 8h13a5 5 0 0 0 5-3v6H16l-2 4h3v3H7v-3h3l-2-4H3z"/>',
   };
   const ic = (n, extra = '') => `<svg viewBox="0 0 24 24" ${extra}>${I[n] || ''}</svg>`;
@@ -276,6 +282,8 @@
   if (!S || S.v !== 2) S = freshState();
   S.game = S.game || { items: [], equip: {} };
   S.meals = S.meals || [];
+  if (S.modules.peptides === undefined) S.modules.peptides = true;
+  if (S.restVoice === undefined) S.restVoice = true;
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 
   // UI-only state (not saved)

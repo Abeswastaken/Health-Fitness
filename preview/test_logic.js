@@ -45,4 +45,27 @@ lg.push({date:'2026-11-03',meal:'Breakfast',foodId:'eggs',qty:1});
 const un=L.usuallyNow(lg,'Breakfast','2026-11-03');console.log('usually',un.map(x=>x.key+':'+x.n));assert.equal(un[0].key,'oats');assert(!un.some(x=>x.key==='eggs'));
 const fs=L.fillSuggestion({cal:300,p:40},[{id:'a',name:'yogurt',cal:100,p:17},{id:'b',name:'chips',cal:250,p:3},{id:'c',name:'steak',cal:500,p:60}]);assert.equal(fs.id,'a');
 assert.equal(L.fillSuggestion({cal:30,p:5},[{id:'a',cal:20,p:3}]),null);
+
+// Peptides (jake's worksheet numbers)
+assert.equal(L.pepConc(60,6),10);assert.equal(L.pepUnits(2,10),20);assert.equal(Math.round(L.pepUnits(0.25,5)),5);assert.equal(Math.round(L.pepUnits(0.3,5)),6);
+assert.equal(L.pepUnits(1,5),20);assert.equal(L.pepDoseFromUnits(40,10),4);assert.equal(L.pepBacFor(60,2,20),6);
+assert.deepEqual(L.pepSyringe(20,[50,100]),{cap:50,draws:1});assert.deepEqual(L.pepSyringe(60,[50,100]),{cap:100,draws:1});assert.deepEqual(L.pepSyringe(120,[50,100]),{cap:100,draws:2});
+// 2026-11-02 is a Monday
+const rt={id:'rt',kind:'days',days:[1],start:'2026-11-02',dose:4,missWin:4};
+assert(L.pepIsDue(rt,'2026-11-09'));assert(!L.pepIsDue(rt,'2026-11-10'));
+const split={...rt,id:'sp',days:[1,4],doseMode:'week'};assert.equal(L.pepDose(split,'2026-11-05'),2);
+const cgl={id:'c',kind:'days',days:[1],start:'2026-11-02',ladder:[{dose:0.5,weeks:2},{dose:1,weeks:2},{dose:1.5,weeks:2}]};
+assert.equal(L.pepBaseDose(cgl,'2026-11-09'),0.5);assert.equal(L.pepBaseDose(cgl,'2026-11-16'),1);assert.equal(L.pepBaseDose(cgl,'2027-03-01'),1.5);assert.equal(L.pepStep(cgl,'2026-11-30'),2);
+const b12={id:'b',kind:'load',days:[1],loadWeeks:4,start:'2026-11-04'};// Wed start: first Monday is 11-09
+const b12d=[];for(let d='2026-11-01';d<='2027-01-31';d=L.pepAddDays(d,1))if(L.pepIsDue(b12,d))b12d.push(d);
+assert.deepEqual(b12d,['2026-11-09','2026-11-16','2026-11-23','2026-11-30','2026-12-07','2027-01-04']);
+const ev={id:'e',kind:'every',n:3,start:'2026-11-02'};assert(L.pepIsDue(ev,'2026-11-08'));assert(!L.pepIsDue(ev,'2026-11-07'));
+assert.equal(L.pepDueOn([rt,ev],'2026-11-02').length,2);
+// Missed Monday: late on Wed (2 days), gone by Sat (5 days > 4), and logged doses aren't late.
+assert.equal(L.pepLate([rt],[],'2026-11-11')[0].late,2);assert.equal(L.pepLate([rt],[],'2026-11-14').length,0);
+assert.equal(L.pepLate([rt],[{key:'rt|2026-11-09'}],'2026-11-11').length,0);assert.equal(L.pepLate([rt],[],'2026-11-09').length,0);
+const vs=L.pepVial({id:'v',mg:60,ml:6,mixed:'2026-11-02',useDays:28},[{vialId:'v',dose:4,status:'done'},{vialId:'v',dose:4,status:'skipped'}],'2026-11-10');
+assert.equal(vs.left,56);assert.equal(vs.expires,'2026-11-30');assert.equal(vs.daysLeft,20);assert.equal(L.pepNeed(rt,'2026-11-10','2026-11-30'),12);
+assert.equal(L.pepNextSite(['a','b','c'],[{site:'a',date:'2026-11-02',status:'done'},{site:'b',date:'2026-11-03',status:'done'}]),'c');
+assert.equal(L.pepNextSite(['a','b'],[{site:'a',date:'2026-11-02',status:'done'},{site:'b',date:'2026-11-03',status:'done'}]),'a');
 console.log('ok');

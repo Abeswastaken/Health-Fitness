@@ -93,6 +93,21 @@ class Health(private val context: Context) {
         return JSONObject().put("avg", samples.map { it.beatsPerMinute }.average().toInt()).put("max", samples.maxOf { it.beatsPerMinute })
     }
 
+    /** Active calories other apps (the watch) logged between two times. This app's own records are left out. */
+    suspend fun calories(start: String, end: String): JSONObject {
+        if (!available() || READ_CALORIES !in granted()) return JSONObject()
+        val a = Instant.parse(start); val b = Instant.parse(end)
+        var kcal = 0.0
+        all(ActiveCaloriesBurnedRecord::class, a, b).filter { it.metadata.dataOrigin.packageName != context.packageName }.forEach { r ->
+            // Count only the part of each record inside the window.
+            val len = Duration.between(r.startTime, r.endTime).toMillis().coerceAtLeast(1)
+            val s = maxOf(r.startTime, a); val e = minOf(r.endTime, b)
+            val part = Duration.between(s, e).toMillis().coerceAtLeast(0)
+            kcal += r.energy.inKilocalories * part / len
+        }
+        return if (kcal > 0) JSONObject().put("kcal", kcal) else JSONObject()
+    }
+
     /**
      * Writes the workout. If another app (the watch) already logged a session that overlaps,
      * it is left alone and this one is skipped, unless force is set.
@@ -132,13 +147,14 @@ class Health(private val context: Context) {
         val READ_EXERCISE = HealthPermission.getReadPermission(ExerciseSessionRecord::class)
         val WRITE_EXERCISE = HealthPermission.getWritePermission(ExerciseSessionRecord::class)
         val WRITE_CALORIES = HealthPermission.getWritePermission(ActiveCaloriesBurnedRecord::class)
-        val ALL = setOf(READ_WEIGHT, READ_HR, READ_RHR, READ_SLEEP, READ_EXERCISE, WRITE_EXERCISE, WRITE_CALORIES)
+        val READ_CALORIES = HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class)
+        val ALL = setOf(READ_WEIGHT, READ_HR, READ_RHR, READ_SLEEP, READ_EXERCISE, WRITE_EXERCISE, WRITE_CALORIES, READ_CALORIES)
 
         fun permissionContract() = PermissionController.createRequestPermissionResultContract()
 
-        /** Short names the web side uses: weight, hr, rhr, sleep, exerciseRead, exercise, calories. */
+        /** Short names the web side uses: weight, hr, rhr, sleep, exerciseRead, exercise, calories, caloriesRead. */
         fun toJson(granted: Set<String>): JSONArray = JSONArray().apply {
-            mapOf(READ_WEIGHT to "weight", READ_HR to "hr", READ_RHR to "rhr", READ_SLEEP to "sleep", READ_EXERCISE to "exerciseRead", WRITE_EXERCISE to "exercise", WRITE_CALORIES to "calories")
+            mapOf(READ_WEIGHT to "weight", READ_HR to "hr", READ_RHR to "rhr", READ_SLEEP to "sleep", READ_EXERCISE to "exerciseRead", WRITE_EXERCISE to "exercise", WRITE_CALORIES to "calories", READ_CALORIES to "caloriesRead")
                 .forEach { (p, n) -> if (p in granted) put(n) }
         }
     }
