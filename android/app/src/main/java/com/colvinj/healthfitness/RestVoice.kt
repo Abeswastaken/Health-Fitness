@@ -30,7 +30,11 @@ class RestVoice(context: Context) {
     private var ready = false
     private var talking = 0
     private val wake = app.getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "HealthFitness:rest")
-    private val tts: TextToSpeech = TextToSpeech(app) { status ->
+    private lateinit var tts: TextToSpeech
+
+    init { tts = TextToSpeech(app) { status -> onInit(status) } }
+
+    private fun onInit(status: Int) {
         ready = status == TextToSpeech.SUCCESS
         if (ready) {
             tts.language = Locale.US
