@@ -1,12 +1,15 @@
 package com.colvinj.healthfitness
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -26,6 +29,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -44,6 +48,22 @@ class MainActivity : ComponentActivity() {
     private lateinit var health: Health
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingHcId: String? = null
+    private var pendingNotifyId: String? = null
+    private var photoUri: Uri? = null
+    private var launchOpen: String? = null
+    private val rest by lazy { RestVoice(this) }
+
+    // "Take photo": the camera app saves into our cache, then the page gets that file.
+    private val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        fileCallback?.onReceiveValue(if (ok && photoUri != null) arrayOf(photoUri!!) else null)
+        fileCallback = null
+    }
+
+    private val notifyPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val id = pendingNotifyId ?: return@registerForActivityResult
+        pendingNotifyId = null
+        done(id, JSONObject().put("granted", ok))
+    }
 
     private val pickFile = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         fileCallback?.onReceiveValue(if (uri != null) arrayOf(uri) else null)
@@ -86,12 +106,21 @@ class MainActivity : ComponentActivity() {
                     fileCallback?.onReceiveValue(null)
                     fileCallback = callback
                     val type = params.acceptTypes.firstOrNull { it.isNotBlank() }?.let { if (it.startsWith(".")) "*/*" else it } ?: "*/*"
+                    if (params.isCaptureEnabled && type.startsWith("image")) {
+                        return runCatching {
+                            val dir = File(cacheDir, "photos").apply { mkdirs() }
+                            val f = File(dir, "photo-${System.currentTimeMillis()}.jpg")
+                            photoUri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", f)
+                            takePhoto.launch(photoUri!!); true
+                        }.getOrElse { fileCallback = null; false }
+                    }
                     return runCatching { pickFile.launch(type); true }.getOrElse { fileCallback = null; false }
                 }
             }
             addJavascriptInterface(Bridge(), "HFDev")
         }
         setContentView(web)
+        launchOpen = intent?.getStringExtra(Reminders.EXTRA_OPEN)
         if (savedInstanceState != null) web.restoreState(savedInstanceState)
         else web.loadUrl("https://$APP_HOST/assets/www/index.html")
 
@@ -106,6 +135,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
         })
+    }
+
+    // Tapped a shot reminder while the app was already open.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val open = intent.getStringExtra(Reminders.EXTRA_OPEN) ?: return
+        web.evaluateJavascript("window.App && window.App.open && window.App.open(${JSONObject.quote(open)})", null)
+    }
+
+    override fun onDestroy() {
+        rest.shutdown()
+        super.onDestroy()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -141,6 +182,29 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun hasSecret(name: String): Boolean = !prefs.getString(name, null).isNullOrBlank()
 
+        /** Spoken rest countdown (keeps going with the screen off). */
+        @JavascriptInterface
+        fun restStart(seconds: Int) = runOnUiThread { rest.start(seconds) }
+
+        @JavascriptInterface
+        fun restStop() = runOnUiThread { rest.stop() }
+
+        @JavascriptInterface
+        fun say(text: String) = runOnUiThread { rest.say(text) }
+
+        /** Screen stays on while the workout logger is open. */
+        @JavascriptInterface
+        fun keepScreen(on: Boolean) = runOnUiThread {
+            if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+
+        /** Where a notification asked to open (read once). */
+        @JavascriptInterface
+        fun takeLaunch(): String { val v = launchOpen ?: ""; launchOpen = null; return v }
+
+        @JavascriptInterface
+        fun canNotify(): Boolean = Reminders.canPost(this@MainActivity)
+
         @JavascriptInterface
         fun shareJson(name: String, text: String) {
             val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
@@ -170,6 +234,12 @@ class MainActivity : ComponentActivity() {
                 "hcOpen" -> runOnUiThread { runCatching { startActivity(health.settingsIntent()) }; done(id, JSONObject().put("ok", true)) }
                 "hcRead" -> lifecycleScope.launch { runCatching { done(id, health.read(args.optInt("days", 365))) }.onFailure { fail(id, it) } }
                 "hcHeartRate" -> lifecycleScope.launch { runCatching { done(id, health.heartRate(args.getString("start"), args.getString("end"))) }.onFailure { fail(id, it) } }
+                "hcCalories" -> lifecycleScope.launch { runCatching { done(id, health.calories(args.getString("start"), args.getString("end"))) }.onFailure { fail(id, it) } }
+                "notifyPermission" -> runOnUiThread {
+                    if (Reminders.canPost(this@MainActivity) || Build.VERSION.SDK_INT < 33) done(id, JSONObject().put("granted", Reminders.canPost(this@MainActivity)))
+                    else { pendingNotifyId = id; runCatching { notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }.onFailure { pendingNotifyId = null; fail(id, it) } }
+                }
+                "pepSchedule" -> runCatching { Reminders.schedule(this@MainActivity, args.optJSONArray("items") ?: JSONArray()); done(id, JSONObject().put("ok", true)) }.onFailure { fail(id, it) }
                 "hcWriteSession" -> lifecycleScope.launch { runCatching { done(id, health.writeSession(args)) }.onFailure { fail(id, it) } }
                 else -> done(id, JSONObject().put("error", "unknown method $method"))
             }

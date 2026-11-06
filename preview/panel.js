@@ -45,7 +45,7 @@
     st.setProperty('--a-headw', d0.headw);
     st.setProperty('--a-fs', d0.fs + 'px');
     st.setProperty('--a-radius', d0.radius + 'px');
-    const dens = { compact: [8, 10], normal: [12, 14], roomy: [16, 18] }[d0.density];
+    const dens = { compact: [6, 9], normal: [10, 12], roomy: [16, 18] }[d0.density];
     st.setProperty('--a-gap', dens[0] + 'px'); st.setProperty('--a-pad', dens[1] + 'px');
     st.setProperty('--a-shadow', ['none', '0 1px 2px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.05)', '0 2px 4px rgba(0,0,0,.08),0 6px 18px rgba(0,0,0,.10)', '0 4px 10px rgba(0,0,0,.12),0 12px 30px rgba(0,0,0,.14)'][d0.shadow]);
     st.setProperty('--a-border', d0.border ? '1px' : '0px');
@@ -207,8 +207,10 @@
   // ---------- Boot ----------
   try { const s = JSON.parse(localStorage.getItem('hf-design-v2')); if (s) ds = merge(s); } catch (e) {}
   try { notes = JSON.parse(localStorage.getItem('hf-notes')) || []; } catch (e) {}
-  // jake (2026-11-03): old notes are handled (see the changelog), so clear them once. App data is untouched.
-  try { if (localStorage.getItem('hf-notes-reset') !== '1') { notes = []; localStorage.setItem('hf-notes', '[]'); localStorage.setItem('hf-notes-reset', '1'); } } catch (e) {}
+  // Clear handled dev notes once per round (bump NOTES_ROUND). App data is untouched.
+  // Round 2 (2026-11-06): the 13 notes from the 11-06 export are built.
+  const NOTES_ROUND = '2';
+  try { if (localStorage.getItem('hf-notes-reset') !== NOTES_ROUND) { notes = []; localStorage.setItem('hf-notes', '[]'); localStorage.setItem('hf-notes-reset', NOTES_ROUND); } } catch (e) {}
   saveState = 'wait';
   apply(); draw();
   const timer = setTimeout(() => { if (!db) setSave('local'); }, 10000);

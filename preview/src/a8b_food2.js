@@ -25,9 +25,13 @@
   A.usualLog = d => { const it = d.r ? { recipeId: d.id, qty: +d.q } : { foodId: d.id, qty: +d.q }; logItem(it, U.foodDate, U.meal); save(); toast(`Logged ${itemName(it)}.`); };
 
   // ----- Quick add (#4) -----
-  A.quickAdd = d => { const e = d && d.entry ? S.log.find(x => x.id === d.entry) : null; U.sheet = { kind: 'quick', title: e ? 'Quick add' : 'Quick add numbers', entry: e?.id, meal: e?.meal || U.meal, q: e ? { ...e.quick } : { name: '', cal: '', p: '', c: '', f: '' } }; render(); };
-  SHEETS.quick = s => `<div class="small muted">For restaurant meals and guesses. No food is saved.</div>
-    <label class="fl">What was it? (optional)<input class="f" id="qa-name" value="${esc(s.q.name || '')}" placeholder="e.g. Chipotle bowl"></label>
+  // One "Add your own" sheet: log numbers once, or flip "Save to my foods" to keep it for next time.
+  A.quickAdd = d => { const e = d && d.entry ? S.log.find(x => x.id === d.entry) : null; U.sheet = { kind: 'quick', title: e ? 'Quick add' : 'Add your own', entry: e?.id, meal: e?.meal || U.meal, keep: false, q: e ? { ...e.quick } : { name: U.q ? U.q.trim() : '', cal: '', p: '', c: '', f: '', servName: '', grams: '' } }; render(); };
+  const qaRead = s => { ['name', 'servName'].forEach(k => { const el = $('#qa-' + k); if (el) s.q[k] = el.value; }); ['cal', 'p', 'c', 'f', 'grams'].forEach(k => { const el = $('#qa-' + k); if (el) s.q[k] = el.value === '' ? '' : +el.value; }); };
+  A.quickKeep = () => { const s = U.sheet; qaRead(s); s.keep = !s.keep; render(); };
+  SHEETS.quick = s => `${s.entry ? '<div class="small muted">A one-time entry. No food is saved.</div>' : `<div class="row"><span class="grow small"><b>Save to my foods</b><br><span class="tiny muted">${s.keep ? 'Kept for next time, with its barcode if you scanned one.' : 'Off: logs these numbers once (restaurant meals, guesses).'}</span></span>${sw(s.keep, 'quickKeep')}</div>`}
+    <label class="fl">${s.keep ? 'Name' : 'What was it? (optional)'}<input class="f" id="qa-name" value="${esc(s.q.name || '')}" placeholder="${s.keep ? 'e.g. Kirkland protein bar' : 'e.g. Chipotle bowl'}"></label>
+    ${s.keep ? `<div class="grid2"><label class="fl">One serving is<input class="f" id="qa-servName" value="${esc(s.q.servName || '')}" placeholder="e.g. 1 bar"></label><label class="fl">Weighs (g)<input class="f num" id="qa-grams" type="number" inputmode="decimal" value="${s.q.grams === '' || s.q.grams == null ? '' : s.q.grams}" placeholder="100"></label></div><div class="tiny muted">Numbers below are for one serving.</div>` : ''}
     <div class="grid2">${[['cal', 'Calories'], ['p', 'Protein g'], ['c', 'Carbs g'], ['f', 'Fat g']].map(([k, l]) => `<label class="fl">${l}<input class="f num" id="qa-${k}" type="number" inputmode="decimal" value="${s.q[k] === '' ? '' : r0(s.q[k])}"></label>`).join('')}</div>
     <div class="tiny muted">Leave calories blank and it's worked out from the macros.</div>
     <div class="chips">${MEALS.map(m => `<button class="chip ${s.meal === m ? 'on' : ''}" data-act="sheetMeal" data-v="${m}">${m}</button>`).join('')}</div>
@@ -37,6 +41,12 @@
     const q = { name: $('#qa-name').value.trim(), p: v('p'), c: v('c'), f: v('f') };
     q.cal = v('cal') || r0(q.p * 4 + q.c * 4 + q.f * 9);
     if (!q.cal) return toast('Enter calories or macros.');
+    if (s.keep && !s.entry) {
+      const f = { id: nid('c'), src: 'Custom', name: q.name || 'My food', servName: ($('#qa-servName')?.value || '').trim(), serv: v('grams') || 100, unit: 'g', cal: q.cal, p: q.p, c: q.c, f: q.f };
+      if (U.scanCode) { f.barcode = U.scanCode; U.scanCode = null; }
+      S.foods.push(f); logItem({ foodId: f.id, qty: 1 }, U.foodDate, s.meal);
+      U.sheet = null; save(); return toast(`Saved ${f.name} and logged it.`);
+    }
     if (s.entry) { const e = S.log.find(x => x.id === s.entry); if (e) { e.quick = q; e.meal = s.meal; } }
     else logItem({ quick: q, qty: 1 }, U.foodDate, s.meal);
     U.sheet = null; save(); toast(s.entry ? 'Updated.' : 'Logged.');
@@ -163,8 +173,9 @@
 
   // ----- USDA FoodData Central: plain foods (#7) -----
   // The key is kept in the phone's private storage (like the AI key) and added by the app; without one, USDA's shared DEMO_KEY is used.
-  async function usdaSearch(q) {
-    const base = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(q)}&pageSize=15&dataType=${encodeURIComponent('Foundation,SR Legacy,Survey (FNDDS)')}`;
+  async function usdaSearch(q, types = 'Foundation,SR Legacy,Survey (FNDDS)') {
+    const branded = types === 'Branded';
+    const base = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(q)}&pageSize=15&dataType=${encodeURIComponent(types)}`;
     let j;
     if (REAL) { const r = await native('http', { url: base, secretQuery: { param: 'api_key', secret: 'usda_key', fallback: 'DEMO_KEY' } }); if (r.error) throw new Error(r.error); if (r.status < 200 || r.status > 299) throw new Error('USDA ' + r.status + (r.status === 429 ? ' (too many searches: add your free key in Settings)' : '')); j = JSON.parse(r.body || '{}'); }
     else { const r = await fetch(base + '&api_key=DEMO_KEY'); if (!r.ok) throw new Error('USDA ' + r.status); j = await r.json(); }
@@ -172,9 +183,14 @@
     return (j.foods || []).map(x => {
       const fn = x.foodNutrients || [], p = num(fn, '203') || 0, c = num(fn, '205') || 0, f = num(fn, '204') || 0;
       const cal = num(fn, '208', '957', '958') ?? (p * 4 + c * 4 + f * 9);
-      return { id: 'usda' + x.fdcId, name: L.cap(String(x.description || '').toLowerCase()), src: 'USDA', serv: 100, unit: 'g', cal: r1(cal), p: r1(p), c: r1(c), f: r1(f) };
+      const name = L.cap(String(x.description || '').toLowerCase()) + (branded && x.brandName ? ' · ' + x.brandName : branded && x.brandOwner ? ' · ' + x.brandOwner : '');
+      // Branded numbers are per 100 g too; keep the label's serving as the household name when it's in grams.
+      const sg = branded && /^g$|^grm$/i.test(x.servingSizeUnit || '') ? +x.servingSize : 0;
+      const k = sg > 0 ? sg / 100 : 1;
+      return { id: 'usda' + x.fdcId, name, src: 'USDA', serv: sg > 0 ? r1(sg) : 100, unit: 'g', servName: sg > 0 ? (x.householdServingFullText || '') : '', cal: r1(cal * k), p: r1(p * k), c: r1(c * k), f: r1(f * k), ...(branded && x.gtinUpc ? { barcode: String(x.gtinUpc) } : {}) };
     }).filter(x => x.cal > 0 || x.p > 0);
   }
+  window.usdaBranded = q => usdaSearch(q, 'Branded');
   A.usdaSearch = async () => {
     const q = (U.q || '').trim(); if (!q) return;
     U.usda = { q, busy: true, items: [] }; render();

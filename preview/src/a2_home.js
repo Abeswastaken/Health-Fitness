@@ -2,15 +2,17 @@
   // ---------- Render ----------
   const phone = $('#phone');
   const SUBS = {
-    food: [['log', 'Log'], ['recipes', 'Recipes'], ['mealplan', 'Meal plan'], ['goals', 'Goals']],
+    food: [['log', 'Log'], ['recipes', 'Recipes'], ['mealplan', 'Meal plan']],
     train: [['today', 'Today'], ['week', 'Week'], ['balance', 'Balance'], ['programs', 'Programs'], ['library', 'Exercises'], ['equipment', 'Gear'], ['history', 'History']],
-    progress: [['overview', 'Overview'], ['strength', 'Strength'], ['achievements', 'Adventure']],
+    progress: [['overview', 'Overview'], ['strength', 'Strength'], ['goals', 'Goals'], ['achievements', 'Adventure']],
+    more: [['today', 'Today'], ['vials', 'Vials'], ['calc', 'Calculator'], ['plan', 'Schedules'], ['guide', 'Guide'], ['history', 'History']],
   };
   function render() {
     const m = S.modules;
-    const tabs = [['home', 'Home', 'home'], m.food && ['food', 'Food', 'food'], m.workout && ['train', 'Train', 'train'], ['progress', 'Progress', 'progress']].filter(Boolean);
+    const tabs = [['home', 'Home', 'home'], m.food && ['food', 'Food', 'food'], m.workout && ['train', 'Train', 'train'], ['progress', 'Progress', 'progress'], m.peptides && ['more', 'More', 'dots']].filter(Boolean);
     if (!tabs.find(t => t[0] === S.tab)) S.tab = 'home';
-    const title = { home: 'Today', food: 'Food', train: 'Train', progress: 'Progress' }[S.tab];
+    const title = { home: 'Today', food: 'Food', train: 'Train', progress: 'Progress', more: 'Peptides' }[S.tab];
+    if (U.goalEdit && !(S.tab === 'progress' && U.sub.progress === 'goals' && !U.stack.length)) A.goalCancel(true);
     const subs = SUBS[S.tab];
     const time = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     const prevScroll = $('#scroll')?.scrollTop || 0, prevKey = render.key;
@@ -234,14 +236,16 @@
       macros: () => {
         if (!S.modules.food) return '';
         const g = goalNow(), t = totalsFor(today), net = L.netRemaining(g.cal, t.cal);
-        const burn = S.sessions.filter(s => s.date === today).reduce((a, s) => a + (s.kcal || 0), 0);
+        const todays = S.sessions.filter(s => s.date === today);
+        const burn = todays.reduce((a, s) => a + (s.kcal || 0), 0);
+        const src = todays.length ? (todays.every(s => s.kcalSrc === 'watch') ? 'from your watch' : todays.some(s => s.avgHr) ? 'from heart rate' : 'estimated from time') : '';
         const planned = todaysWorkout().filter(w => !w.done && !w.off).reduce((a, w) => a + (w.kind === 'main' ? L.sessionCalories(S.profile, 50) : 35), 0);
         return `<div class="card" data-k="card-macros" data-act="goFood">
           <h2>Food today<span class="sp"></span><span class="tiny muted">tap to log</span></h2>
           <div class="netline"><span class="num big">${r0(net)}</span><span class="muted small">kcal ${net >= 0 ? 'left' : 'over'} of ${r0(g.cal)}</span></div>
           ${D().macroStyle === 'rings' ? `<div class="ringgrid">${ring('Calories', t.cal, g.cal, 'var(--a-accent)', '')}${ring('Protein', t.p, g.p, 'var(--a-p)')}${ring('Carbs', t.c, g.c, 'var(--a-c)')}${ring('Fat', t.f, g.f, 'var(--a-f)')}</div>` :
           macroBar('Calories', t.cal, g.cal, 'var(--a-accent)', '') + macroBar('Protein', t.p, g.p, 'var(--a-p)') + macroBar('Carbs', t.c, g.c, 'var(--a-c)') + macroBar('Fat', t.f, g.f, 'var(--a-f)')}
-          <div class="row small hr" data-k="burn-line"><span class="grow muted">Workout burn (not counted in net)</span><span class="num">${burn ? r0(burn) + ' kcal' : planned ? '~' + planned + ' kcal planned' : '0 kcal'}</span></div>
+          <div class="row small hr" data-k="burn-line"><span class="grow muted">Workout burn${src ? ', ' + src : ''} (not counted in net)</span><span class="num">${burn ? r0(burn) + ' kcal' : planned ? '~' + planned + ' kcal planned' : '0 kcal'}</span></div>
         </div>`;
       },
       streak: () => {

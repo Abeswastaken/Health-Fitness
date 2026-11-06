@@ -199,7 +199,12 @@
       ${S.foods.some(f => f.id === id) && !S.log.some(e => e.foodId === id) && !S.recipes.some(r => r.ing.some(i => i.foodId === id)) ? `<button class="btn ghost" data-act="foodDel" data-id="${id}">${ic('trash')}Delete this food</button>` : `<div class="tiny muted">Logged foods stay in your food list so past days keep their numbers.</div>`}`;
   A.recentDel = d => { S.recent = S.recent.filter(x => x !== d.id); U.sheet = null; save(); toast('Removed from Recent.'); };
   A.foodDel = d => { S.foods = S.foods.filter(f => f.id !== d.id); S.recent = S.recent.filter(x => x !== d.id); S.favFoods = S.favFoods.filter(x => x !== d.id); U.sheet = null; save(); toast('Food deleted.'); };
-  A.recentTab = d => { U.recentTab = d.v; render(); };
+  A.recentTab = d => { U.recentTab = d.v; if (S.recentClosed) { S.recentClosed = false; save(); } render(); };
+  A.recentFold = () => { S.recentClosed = !S.recentClosed; save(); render(); };
+  // Goals: edits go live on screen but only stick after Save (Cancel puts the old ones back).
+  A.goalEdit = () => { U.goalEdit = JSON.parse(JSON.stringify({ goal: S.goal, profile: S.profile })); render(); };
+  A.goalSave = () => { U.goalEdit = null; save(); toast('Goals saved.'); };
+  A.goalCancel = quiet => { if (!U.goalEdit) return; S.goal = U.goalEdit.goal; S.profile = U.goalEdit.profile; U.goalEdit = null; save(); if (quiet !== true) render(); };
   A.mealToggle = d => { S.mealOpen[d.v] = S.mealOpen[d.v] === false; save(); render(); };
   A.addToMeal = d => { U.meal = d.v; U.focusId = 'foodq'; render(); if ($('#scroll')) $('#scroll').scrollTop = 0; };
   A.favFood = d => { const i = S.favFoods.indexOf(d.id); if (i >= 0) S.favFoods.splice(i, 1); else S.favFoods.unshift(d.id); save(); render(); };
@@ -406,10 +411,65 @@
   A.startWorkout = d => {
     const w = todaysWorkout()[+d.i];
     if (!w || !w.items.length) return;
-    U.log = { kind: w.kind, name: w.name, items: w.items.map(it => ({ ...it })), idx: 0, sets: w.items.map(it => [...Array(it.sets)].map(() => newSet(it.ex, it.scheme))), start: Date.now() };
-    U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; render();
+    U.log = { kind: w.kind, name: w.name, wd: dow(today), items: w.items.map(it => ({ ...it })), idx: 0, sets: w.items.map(it => [...Array(it.sets)].map(() => newSet(it.ex, it.scheme))), start: Date.now() };
+    U.stack = [{ kind: 'logger' }]; U.keepFullScroll = false; render(); logLive();
   };
-  A.logGo = d => { U.log.idx = +d.i; render(); };
+  // Tap the open exercise to fold it; tap another to open that one.
+  A.logGo = d => { const st = U.log; if (+d.i === st.idx) st.fold = !st.fold; else { st.idx = +d.i; st.fold = false; } render(); };
+  A.logFoldAll = () => { U.log.fold = true; render(); };
+  A.logOrder = () => { U.log.order = !U.log.order; render(); };
+  A.logMove = (d, el, ev) => {
+    ev?.stopPropagation?.();
+    const st = U.log, i = +d.i, j = i + +d.v; if (j < 0 || j >= st.items.length) return;
+    [st.items[i], st.items[j]] = [st.items[j], st.items[i]];
+    [st.sets[i], st.sets[j]] = [st.sets[j], st.sets[i]];
+    if (st.idx === i) st.idx = j; else if (st.idx === j) st.idx = i;
+    render();
+  };
+  // Today's order becomes this weekday's order in the plan (exercises added today come along).
+  A.logOrderSave = () => { const st = U.log; if (!S.planWeek || st.wd == null) return; S.planWeek[st.wd] = st.items.map(it => ({ ...it })); save(); st.order = false; toast('Saved this order to your ' + DAYS[st.wd] + ' plan.'); };
+  A.restVoice = () => { S.restVoice = !S.restVoice; save(); if (!S.restVoice) voiceStop(); else if (U.rest) voiceStart(); render(); };
+  A.modPep = () => { S.modules.peptides = !S.modules.peptides; save(); render(); };
+
+  // Spoken rest countdown. The installed app does it natively (keeps time with the screen off);
+  // the preview uses the browser's voice.
+  function voiceStart() {
+    if (!S.restVoice || !U.rest) return;
+    const secs = Math.max(0, Math.round((U.rest.until - Date.now()) / 1000));
+    if (REAL && window.HFDev.restStart) return window.HFDev.restStart(secs);
+    U.rest.cues = {};
+  }
+  function voiceStop() { if (REAL && window.HFDev.restStop) window.HFDev.restStop(); if (U.rest) U.rest.cues = null; }
+  function voiceTick(r) {
+    if (REAL || !S.restVoice || !U.rest || !U.rest.cues || !window.speechSynthesis) return;
+    const c = U.rest.cues; if (c[r]) return;
+    const txt = r === 0 ? 'Go' : r <= 3 ? String(r) : r === 10 ? '10 seconds' : r % 30 === 0 && r < U.rest.total ? (r <= 90 ? r + ' seconds remaining' : r % 60 ? Math.floor(r / 60) + ' minutes ' + (r % 60) + ' seconds remaining' : r / 60 + ' minutes remaining') : '';
+    if (!txt) return; c[r] = 1;
+    try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(txt)); } catch (e) {}
+  }
+
+  // Live burn while you lift: the watch's calories if Health Connect has them, else heart rate, else time.
+  function liveKcal(st) {
+    const min = Math.max(0, (Date.now() - st.start) / 60000);
+    if (st.watchKcal > 0) return { kcal: st.watchKcal, src: 'From your watch' };
+    if (st.liveHr) return { kcal: L.sessionCalories(S.profile, min, st.liveHr), src: 'From your heart rate (' + st.liveHr + ' bpm avg)' };
+    return { kcal: L.sessionCalories(S.profile, min, null, st.kind === 'morning' ? L.MET.light : L.MET.strength), src: 'Estimated from time' };
+  }
+  function logLive() {
+    clearInterval(logLive.t);
+    if (REAL && window.HFDev.keepScreen) window.HFDev.keepScreen(true);
+    const poll = () => {
+      const st = U.log; if (!st) { clearInterval(logLive.t); if (REAL && window.HFDev.keepScreen) window.HFDev.keepScreen(false); return; }
+      if (REAL && S.hc.connected) {
+        const a = { start: new Date(st.start).toISOString(), end: new Date().toISOString() };
+        native('hcHeartRate', a).then(r => { if (r.avg && U.log === st) st.liveHr = r.avg; });
+        native('hcCalories', a).then(r => { if (r.kcal && U.log === st) st.watchKcal = r.kcal; });
+      }
+      const el = document.querySelector('[data-k="live-burn"]');
+      if (el && topFull()?.kind === 'logger') { const lk = liveKcal(st); el.textContent = `${Math.max(0, Math.round((Date.now() - st.start) / 60000))} min · ${r0(lk.kcal)} kcal`; el.title = lk.src; }
+    };
+    logLive.t = setInterval(poll, 30000);
+  }
   A.setFail = d => { const s = U.log.sets[U.log.idx][+d.i]; s.fail = !s.fail; render(); };
   A.setPain = d => { const s = U.log.sets[U.log.idx][+d.i]; s.pain = !s.pain; render(); };
   A.addSet = () => { const ss = U.log.sets[U.log.idx]; const l = ss[ss.length - 1]; ss.push({ ...l, done: false, fail: false, pain: false, drop: false }); render(); };
@@ -421,16 +481,18 @@
     if (st.sets.every(x => x.every(s => s.done))) return A.finishLog();
     if (cur === -1) { const nx = st.sets.findIndex(x => x.some(s => !s.done)); st.idx = nx; U.rest = null; return render(); }
     ss[cur].done = true;
-    U.rest = { until: Date.now() + (st.kind === 'morning' ? 20 : schemeOf(st.items[st.idx]).rest) * 1000 };
+    const secs = st.kind === 'morning' ? 20 : schemeOf(st.items[st.idx]).rest;
+    U.rest = { until: Date.now() + secs * 1000, total: secs };
+    st.fold = false;
     if (cur === ss.length - 1) { const nx = st.sets.findIndex(x => x.some(s => !s.done)); if (nx >= 0) st.idx = nx; }
-    render(); tickRest();
+    render(); voiceStart(); tickRest();
   };
-  function tickRest() { clearInterval(tickRest.t); tickRest.t = setInterval(() => { if (!U.rest || Date.now() > U.rest.until) { clearInterval(tickRest.t); U.rest = null; } if (topFull()?.kind === 'logger') { const el = $('.restbar b'); if (el && U.rest) { const r = Math.max(0, Math.ceil((U.rest.until - Date.now()) / 1000)); el.textContent = `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`; } else render(); } }, 1000); }
-  A.restAdd = () => { if (U.rest) U.rest.until += 30000; render(); };
-  A.restSkip = () => { U.rest = null; render(); };
-  A.quitLog = () => { U.stack = []; U.log = null; U.rest = null; toast('Workout discarded.'); };
+  function tickRest() { clearInterval(tickRest.t); tickRest.t = setInterval(() => { const r = U.rest ? Math.max(0, Math.ceil((U.rest.until - Date.now()) / 1000)) : 0; if (U.rest) voiceTick(r); if (!U.rest || Date.now() > U.rest.until) { clearInterval(tickRest.t); U.rest = null; } if (topFull()?.kind === 'logger') { const el = $('.restbar b'); if (el && U.rest) { el.textContent = `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`; } else render(); } }, 1000); }
+  A.restAdd = () => { if (U.rest) { U.rest.until += 30000; U.rest.total = Math.round((U.rest.until - Date.now()) / 1000); voiceStart(); } render(); };
+  A.restSkip = () => { voiceStop(); U.rest = null; render(); };
+  A.quitLog = () => { voiceStop(); U.stack = []; U.log = null; U.rest = null; toast('Workout discarded.'); };
   A.finishLog = () => {
-    const st = U.log; U.rest = null;
+    const st = U.log; voiceStop(); U.rest = null;
     const before = game();
     const min = Math.max(1, Math.round((Date.now() - st.start) / 60000));
     const sets = [], recs = [], prs = [];
@@ -449,8 +511,8 @@
       recs.push({ ex: it.ex, name: exName(it.ex), rec, sets: done, pr });
     });
     const avgHr = !REAL && S.hc.read.hr ? 112 + Math.round(Math.random() * 18) : null;
-    const kcal = L.sessionCalories(S.profile, min, st.kind === 'morning' ? null : avgHr, st.kind === 'morning' ? L.MET.light : L.MET.strength);
-    S.sessions.push({ id: 's' + Date.now(), date: today, morning: st.kind === 'morning', start: new Date().toISOString(), min, avgHr, kcal, sets });
+    const kcal = st.watchKcal > 0 ? r0(st.watchKcal) : L.sessionCalories(S.profile, min, st.kind === 'morning' ? null : (st.liveHr || avgHr), st.kind === 'morning' ? L.MET.light : L.MET.strength);
+    S.sessions.push({ id: 's' + Date.now(), date: today, morning: st.kind === 'morning', start: new Date().toISOString(), min, avgHr: st.liveHr || avgHr, kcal, kcalSrc: st.watchKcal > 0 ? 'watch' : (st.liveHr || avgHr) ? 'hr' : 'time', sets });
     U.lastPrs = prs; gameCache = null;
     const after = game();
     save();

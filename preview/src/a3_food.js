@@ -13,11 +13,11 @@
         <div style="position:absolute;top:10px;left:12px;font-size:12px;opacity:.85">Point at a barcode</div>
         <div class="vf-actions"><button class="btn sm" data-act="simScan">${ic('scan')}Simulate scan</button><button class="btn sm" data-act="photoAI" aria-label="Photo of plate">${ic('camera')}Plate photo</button></div></div>` : ''}
       <div class="chips" data-k="meal-chips">${MEALS.map(m => `<button class="chip ${U.meal === m ? 'on' : ''}" data-act="meal" data-v="${m}">${m}</button>`).join('')}</div>
-      <div class="row" data-k="food-search"><input class="f" id="foodq" placeholder="Search foods, meals, barcodes" value="${esc(U.q)}" data-in="foodq" autocomplete="off"><button class="btn sm ghost" data-act="quickAdd" aria-label="Quick add numbers">${ic('bolt')}Quick</button><button class="btn sm ghost" data-act="newFood">${ic('plus')}Custom</button></div>
+      <div class="row" data-k="food-search"><input class="f" id="foodq" placeholder="Search foods, meals, barcodes" value="${esc(U.q)}" data-in="foodq" autocomplete="off"><button class="btn sm ghost" data-act="quickAdd" aria-label="Add your own food or numbers">${ic('plus')}Add your own</button></div>
       ${res ? `<div class="card" data-k="search-results">${res.length ? groupResults(res) : `<div class="muted small">No match in your foods. Search online or ask the AI without leaving the app:</div>`}${offBlock()}</div>` : `
       ${usualBlock(d)}
-      <div class="card" data-k="recent-foods"><div class="seg" role="tablist"><button class="${U.recentTab === 'recent' ? 'on' : ''}" data-act="recentTab" data-v="recent">Recent</button><button class="${U.recentTab === 'fav' ? 'on' : ''}" data-act="recentTab" data-v="fav">${ic('star', 'class="inl"')}Favorites</button><button class="${U.recentTab === 'meals' ? 'on' : ''}" data-act="recentTab" data-v="meals">Meals</button></div>
-        ${U.recentTab === 'meals' ? `<div class="list scroll5">${S.meals.map(savedMealRow).join('') || '<div class="muted small" style="padding:10px 0">No saved meals yet. Open a meal\'s menu (⋯) and tap "Save as a meal".</div>'}</div><div class="tiny muted">${S.meals.length} saved meals · logs to ${U.meal}</div>` : `
+      <div class="card tight" data-k="recent-foods"><div class="row"><div class="seg grow" role="tablist"><button class="${U.recentTab === 'recent' ? 'on' : ''}" data-act="recentTab" data-v="recent">Recent</button><button class="${U.recentTab === 'fav' ? 'on' : ''}" data-act="recentTab" data-v="fav">${ic('star', 'class="inl"')}Favorites</button><button class="${U.recentTab === 'meals' ? 'on' : ''}" data-act="recentTab" data-v="meals">Meals</button></div><button class="iconbtn sm" data-act="recentFold" aria-label="${S.recentClosed ? 'Show' : 'Hide'} list">${chev(!S.recentClosed)}</button></div>
+        ${S.recentClosed ? '' : U.recentTab === 'meals' ? `<div class="list scroll5">${S.meals.map(savedMealRow).join('') || '<div class="muted small" style="padding:10px 0">No saved meals yet. Open a meal\'s menu (⋯) and tap "Save as a meal".</div>'}</div><div class="tiny muted">${S.meals.length} saved meals · logs to ${U.meal}</div>` : `
         <div class="list scroll5">${listIds.map(itemById).filter(Boolean).map(x => foodRow(x)).join('') || '<div class="muted small" style="padding:10px 0">Tap the star on any food to add it here.</div>'}</div>
         <div class="tiny muted">${U.recentTab === 'fav' ? listIds.length + ' favorites' : 'Last ' + Math.min(25, listIds.length) + ' foods'} · hold a food for more · logs to ${U.meal}</div>`}</div>`}
       ${MEALS.map(m => {
@@ -32,7 +32,10 @@
   };
   function searchFoods(q, opts = {}) {
     const s = q.toLowerCase().trim();
-    const fuzzy = (name) => { const n = name.toLowerCase(); if (n.includes(s)) return 2; let i = 0; for (const ch of n) if (ch === s[i]) i++; return i >= s.length - 1 && s.length > 2 ? 1 : 0; };
+    // Whole text anywhere = strong match. Otherwise every typed word has to start a word in the name
+    // ("chick bre" finds "Chicken breast"). Loose letter-by-letter matching let "mango" hit long product names.
+    const words = s.split(/\s+/).filter(Boolean);
+    const fuzzy = (name) => { const n = name.toLowerCase(); if (n.includes(s)) return 2; const nw = n.split(/[^a-z0-9%]+/).filter(Boolean); return words.length && words.every(w => nw.some(x => x.startsWith(w))) ? 1 : 0; };
     const out = [];
     for (const r of S.recipes) { const sc = fuzzy(r.name); if (sc) out.push({ type: 'Recipes', item: r, sc: sc + 1 }); }
     for (const m of S.meals || []) { const sc = fuzzy(m.name); if (sc && !opts.noMeals) out.push({ type: 'Saved meals', item: m, sc: sc + 2 }); }
@@ -70,10 +73,13 @@
       ${MEALS.map(m => { const ps = planned.filter(p => p.meal === m); return `<div class="card tight" data-k="plan-${m.toLowerCase()}"><h2>${m}<span class="sp"></span><button class="btn sm ghost" data-act="planAdd" data-v="${m}">${ic('plus')}Add</button></h2>
         ${ps.map(p => { const done = logged.some(l => (l.recipeId || l.foodId) === (p.recipeId || p.foodId)); const mm = L.entryMacros(p, foodsById(), recipesById()); return `<div class="li tight"><div class="grow" data-act="editPlan" data-id="${p.id}"><div class="small">${esc(entryName(p))} <span class="muted">${qtyTxt(p)}</span></div><div class="tiny muted num">${r0(mm.cal)} kcal · P${r0(mm.p)}</div></div>${done ? '<span class="badge good">Eaten</span>' : U.mpDay <= today ? `<button class="btn sm ghost" data-act="logPlanned" data-id="${p.id}">Log it</button>` : ''}<button class="iconbtn sm" data-act="unplan" data-id="${p.id}" aria-label="Remove">${ic('close')}</button></div>`; }).join('') || '<div class="tiny muted">Nothing planned.</div>'}</div>`; }).join('')}`;
   };
-  SCREENS['food:goals'] = () => {
+  SCREENS['progress:goals'] = () => {
     const p = S.profile, g = goalNow(), tdee = L.tdee(p);
     const m = S.goal.method;
-    return `<div class="card" data-k="goal-method"><h2>How to set your target</h2>
+    // Locked until "Edit goals" so a stray tap can't change them; Save or Cancel ends editing.
+    const lock = !U.goalEdit;
+    return `<div class="card tight" data-k="goal-lock"><div class="row">${lock ? `<span class="grow small muted">Calories ${r0(g.cal)} · P${r0(g.p)} C${r0(g.c)} F${r0(g.f)}</span><button class="btn sm" data-act="goalEdit">${ic('edit')}Edit goals</button>` : `<span class="grow small"><b>Editing.</b> Nothing changes until you save.</span><button class="btn sm ghost" data-act="goalCancel">Cancel</button><button class="btn sm" data-act="goalSave">Save</button>`}</div></div>
+      <div class="${lock ? 'locked' : ''}"><div class="card" data-k="goal-method"><h2>How to set your target</h2>
         <div class="chips">${[['manual', 'Type it in'], ['tdee', 'Maintenance (TDEE)'], ['goal', 'Goal-based'], ['ai', 'Ask AI']].map(([k, l]) => `<button class="chip ${m === k ? 'on' : ''}" data-act="goalMethod" data-v="${k}">${l}</button>`).join('')}</div>
         ${m === 'manual' ? `<div class="grid2">${['cal', 'p', 'c', 'f'].map(k => `<label class="fl">${{ cal: 'Calories', p: 'Protein g', c: 'Carbs g', f: 'Fat g' }[k]}<input class="f num" type="number" value="${S.goal[k] || g[k]}" data-in="goal" data-k2="${k}"></label>`).join('')}</div>` : ''}
         ${m === 'tdee' ? `<div class="small">Resting burn <b class="num">${r0(L.bmr(p))}</b> × activity ${L.ACTIVITY[p.activity]} = <b class="num">${r0(tdee)}</b> kcal to stay the same.</div>` : ''}
@@ -86,5 +92,5 @@
       <div class="card" data-k="presets"><h2>Diet preset</h2><div class="chips">${Object.keys(L.PRESETS).map(k => `<button class="chip ${S.goal.preset === k ? 'on' : ''}" data-act="preset" data-v="${k}">${k}</button>`).join('')}</div>
         <div class="tiny muted">${S.goal.preset === 'Keto' ? 'Keto caps carbs at 30 g.' : 'Splits calories into protein, carbs and fat. Every number stays editable.'}</div>
         ${macroBar('Protein', g.p, g.p, 'var(--a-p)')}${macroBar('Carbs', g.c, g.c, 'var(--a-c)')}${macroBar('Fat', g.f, g.f, 'var(--a-f)')}
-        <div class="small muted">Protein ${r1(g.p / p.weightLb)} g per lb of body weight.</div></div>`;
+        <div class="small muted">Protein ${r1(g.p / p.weightLb)} g per lb of body weight.</div></div></div>`;
   };

@@ -24,7 +24,9 @@
   FULL.settings = () => `${bar('Settings')}<div class="scroll">
     <div class="card" data-k="set-modules"><h2>Tracking</h2><div class="small muted">Turning a side off hides it everywhere: tabs, widgets, checks and AI. Your data stays.</div>
       <div class="row"><span class="grow">Food and macros</span>${sw(S.modules.food, 'modFood')}</div>
-      <div class="row"><span class="grow">Workouts</span>${sw(S.modules.workout, 'modWorkout')}</div></div>
+      <div class="row"><span class="grow">Workouts</span>${sw(S.modules.workout, 'modWorkout')}</div>
+      <div class="row"><span class="grow">Peptides <span class="tiny muted">(under More)</span></span>${sw(S.modules.peptides, 'modPep')}</div>
+      <div class="row"><span class="grow">Spoken rest timer <span class="tiny muted">(time left every 30 s, then 10, 3, 2, 1)</span></span>${sw(S.restVoice, 'restVoice')}</div></div>
     <div class="card" data-k="set-profile"><h2>You</h2><div class="grid2">
       <label class="fl">Age<input class="f num" type="number" value="${S.profile.age}" data-in="prof" data-k2="age"></label>
       ${heightInputs(S.profile)}
@@ -47,6 +49,7 @@
     ${REAL ? `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Samsung Health shares your scale and watch through Health Connect. Weigh-ins you add by hand stay in this app only.</div>
       ${S.hc.connected ? `${[['weight', 'Read body weight'], ['hr', 'Read heart rate (workout calories)'], ['rhr', 'Read resting heart rate'], ['sleep', 'Read sleep']].map(([k, l]) => `<div class="row small"><span class="grow">${l}${(S.hc.granted || []).includes(k) ? '' : ' <span class="muted">(not allowed)</span>'}</span>${sw(S.hc.read[k], 'hcRead', `data-k2="${k}"`)}</div>`).join('')}
       <div class="row small"><span class="grow">Write workouts${(S.hc.granted || []).includes('exercise') ? '' : ' <span class="muted">(not allowed)</span>'}</span>${sw(S.hc.write.sessions, 'hcWrite')}</div>
+      <div class="row small"><span class="grow">Read the watch's active calories (live workout burn)</span><span class="tiny ${(S.hc.granted || []).includes('caloriesRead') ? '' : 'muted'}">${(S.hc.granted || []).includes('caloriesRead') ? 'Allowed' : 'Not allowed yet: tap Permissions'}</span></div>
       <label class="fl">When the watch also logged the same workout<select class="f" data-in="hcConflict">${[['skip', 'Keep the watch\'s, don\'t send mine (recommended)'], ['app', 'Send mine too']].map(([k, l]) => `<option value="${k}" ${S.hc.conflict === k || (k === 'skip' && S.hc.conflict !== 'app') ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <div class="row"><button class="btn sm ghost" data-act="hcSyncNow">Sync now</button><button class="btn sm ghost" data-act="hcConnect">Permissions</button><button class="btn sm ghost" data-act="hcOpen">Open Health Connect</button></div>` : `<button class="btn" data-act="hcConnect">Connect Health Connect</button>`}</div>` : `<div class="card" data-k="set-hc"><h2>Health Connect</h2><div class="small muted">Samsung Health shares your scale and watch data through Health Connect.</div>
       ${[['weight', 'Read body weight'], ['hr', 'Read heart rate'], ['rhr', 'Read resting heart rate'], ['sleep', 'Read sleep']].map(([k, l]) => `<div class="row small"><span class="grow">${l}</span>${sw(S.hc.read[k], 'hcRead', `data-k2="${k}"`)}</div>`).join('')}
@@ -121,12 +124,14 @@
     const rest = U.rest ? Math.max(0, Math.ceil((U.rest.until - Date.now()) / 1000)) : 0;
     const cur = st.sets[st.idx].findIndex(s => !s.done);
     const allDone = st.sets.every(ss => ss.every(s => s.done));
-    return `<div class="appbar"><button class="iconbtn" data-act="quitLog" aria-label="Close">${ic('close')}</button><h1 class="h1sm">${esc(st.name)}</h1><span class="small muted num">${elapsed} min</span></div>
-      ${rest > 0 ? `<div class="restbar" data-k="rest-timer"><span class="small">Rest</span><b class="num">${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, '0')}</b><span class="grow"></span><button class="btn ghost sm" data-act="restAdd">+30 s</button><button class="btn sm" data-act="restSkip">Skip</button></div>` : ''}
+    const lk = liveKcal(st);
+    return `<div class="appbar"><button class="iconbtn" data-act="quitLog" aria-label="Close">${ic('close')}</button><h1 class="h1sm">${esc(st.name)}</h1><span class="small muted num" data-k="live-burn" title="${lk.src}">${elapsed} min · ${r0(lk.kcal)} kcal</span></div>
+      ${rest > 0 ? `<div class="restbar" data-k="rest-timer"><span class="small">Rest</span><b class="num">${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, '0')}</b><span class="grow"></span><button class="iconbtn sm" data-act="restVoice" aria-label="${S.restVoice ? 'Mute' : 'Turn on'} the spoken countdown">${ic(S.restVoice ? 'bell' : 'minus')}</button><button class="btn ghost sm" data-act="restAdd">+30 s</button><button class="btn sm" data-act="restSkip">Skip</button></div>` : ''}
+      <div class="row tiny" data-k="logger-tools" style="padding:0 14px 4px"><span class="grow muted">${st.order ? 'Use the arrows to move exercises.' : ''}</span>${st.order ? `${st.kind === 'main' ? '<button class="btn sm ghost" data-act="logOrderSave">Save order to plan</button>' : ''}<button class="btn sm" data-act="logOrder">Done</button>` : `<button class="btn sm ghost" data-act="logFoldAll">${ic('up')}Collapse all</button><button class="btn sm ghost" data-act="logOrder">${ic('swap')}Reorder</button>`}</div>
       <div class="scroll" data-k="logger-list">
       ${st.items.map((it, k) => {
-        const sets = st.sets[k], doneN = sets.filter(s => s.done).length, open = k === st.idx, sch = schemeOf(it);
-        const head = `<div class="acc-h" data-act="logGo" data-i="${k}"><span class="accn ${doneN === sets.length ? 'done' : open ? 'cur' : ''}">${doneN === sets.length ? ic('check') : k + 1}</span><div class="grow"><b class="small">${esc(exName(it.ex))}</b><div class="tiny muted num">${targetLine(it)}</div></div><span class="tiny num muted">${doneN}/${sets.length}</span>${chev(open)}</div>`;
+        const sets = st.sets[k], doneN = sets.filter(s => s.done).length, open = k === st.idx && !st.fold && !st.order, sch = schemeOf(it);
+        const head = `<div class="acc-h" data-act="${st.order ? 'noop' : 'logGo'}" data-i="${k}"><span class="accn ${doneN === sets.length ? 'done' : k === st.idx ? 'cur' : ''}">${doneN === sets.length ? ic('check') : k + 1}</span><div class="grow"><b class="small">${esc(exName(it.ex))}</b><div class="tiny muted num">${targetLine(it)}</div></div>${st.order ? `<button class="iconbtn sm" data-act="logMove" data-i="${k}" data-v="-1" aria-label="Move up" ${k ? '' : 'disabled style="opacity:.3"'}>${ic('up')}</button><button class="iconbtn sm" data-act="logMove" data-i="${k}" data-v="1" aria-label="Move down" ${k < st.items.length - 1 ? '' : 'disabled style="opacity:.3"'}>${ic('down')}</button>` : `<span class="tiny num muted">${doneN}/${sets.length}</span>${chev(open)}`}</div>`;
         if (!open) return `<div class="acc" data-k="logger-ex">${head}</div>`;
         const c = sets.findIndex(s => !s.done);
         return `<div class="acc open" data-k="logger-ex">${head}
